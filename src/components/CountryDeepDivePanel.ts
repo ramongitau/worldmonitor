@@ -1,4 +1,5 @@
 import type { CountryBriefSignals } from '@/app/app-context';
+import * as d3 from 'd3';
 import { getSourcePropagandaRisk, getSourceTier } from '@/config/feeds';
 import { getCountryCentroid, ME_STRIKE_BOUNDS } from '@/services/country-geometry';
 import type { CountryScore } from '@/services/country-instability';
@@ -18,6 +19,7 @@ import type {
   CountryDeepDiveSignalItem,
   CountryDeepDiveMilitarySummary,
   CountryDeepDiveEconomicIndicator,
+  CiiHistoryPoint,
 } from './CountryBriefPanel';
 import type { MapContainer } from './MapContainer';
 
@@ -71,6 +73,7 @@ export class CountryDeepDivePanel implements CountryBriefPanel {
   private marketsBody: HTMLElement | null = null;
   private briefBody: HTMLElement | null = null;
   private timelineBody: HTMLElement | null = null;
+  private sparklineBody: HTMLElement | null = null;
 
   private readonly handleGlobalKeydown = (event: KeyboardEvent): void => {
     if (!this.panel.classList.contains('active')) return;
@@ -498,6 +501,54 @@ export class CountryDeepDivePanel implements CountryBriefPanel {
     this.briefBody.append(expandedBrief);
   }
 
+  public updateCiiHistory(points: CiiHistoryPoint[]): void {
+    if (!this.sparklineBody) return;
+    this.sparklineBody.replaceChildren();
+
+    if (points.length < 2) {
+      this.sparklineBody.append(this.el('div', 'cdp-sparkline-empty', 'Insufficient historical data'));
+      return;
+    }
+
+    const width = 240;
+    const height = 40;
+    const margin = { top: 5, right: 5, bottom: 5, left: 5 };
+
+    const svg = d3.select(this.sparklineBody)
+      .append('svg')
+      .attr('width', width)
+      .attr('height', height)
+      .attr('viewBox', `0 0 ${width} ${height}`);
+
+    const x = d3.scaleTime()
+      .domain(d3.extent(points, p => new Date(p.ts)) as [Date, Date])
+      .range([margin.left, width - margin.right]);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height - margin.bottom, margin.top]);
+
+    const line = d3.line<CiiHistoryPoint>()
+      .x(p => x(new Date(p.ts)))
+      .y(p => y(p.score))
+      .curve(d3.curveBasis);
+
+    svg.append('path')
+      .datum(points)
+      .attr('fill', 'none')
+      .attr('stroke', getCSSColor('--semantic-elevated'))
+      .attr('stroke-width', 2)
+      .attr('d', line);
+
+    // Add dots for start/end
+    const last = points[points.length - 1]!;
+    svg.append('circle')
+      .attr('cx', x(new Date(last.ts)))
+      .attr('cy', y(last.score))
+      .attr('r', 3)
+      .attr('fill', getCSSColor('--semantic-elevated'));
+  }
+
   private renderLoading(): void {
     this.content.replaceChildren();
     const loading = this.el('div', 'cdp-loading');
@@ -565,6 +616,11 @@ export class CountryDeepDivePanel implements CountryBriefPanel {
       const trend = this.el('div', 'cdp-trend', `${this.trendArrow(score.trend)} ${score.trend}`);
       scoreRow.append(value, trend);
       scoreCard.append(scoreRow);
+
+      const sparkContainer = this.el('div', 'cdp-sparkline-container');
+      this.sparklineBody = sparkContainer;
+      scoreCard.append(sparkContainer);
+
       scoreCard.append(this.renderComponentBars(score.components));
     } else {
       scoreCard.append(this.makeEmpty(t('countryBrief.ciiUnavailable')));

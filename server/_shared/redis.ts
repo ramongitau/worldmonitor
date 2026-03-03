@@ -250,3 +250,54 @@ export async function getHashFieldsBatch(
   }
   return result;
 }
+
+/**
+ * ZADD — add a member to a sorted set with a score (timestamp).
+ */
+export async function zAdd(
+  key: string, score: number, member: string, ttlSeconds?: number, raw = false,
+): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return;
+  try {
+    const finalKey = raw ? key : prefixKey(key);
+    const pipeline = [['ZADD', finalKey, String(score), member]];
+    if (ttlSeconds) {
+      pipeline.push(['EXPIRE', finalKey, String(ttlSeconds)]);
+    }
+    await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(pipeline),
+      signal: AbortSignal.timeout(REDIS_PIPELINE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    console.warn('[redis] zAdd failed:', errMsg(err));
+  }
+}
+
+/**
+ * ZRANGEBYSCORE — get members within a score/timestamp range.
+ */
+export async function zRangeByScore(
+  key: string, min: number, max: number, raw = false,
+): Promise<string[]> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return [];
+  try {
+    const finalKey = raw ? key : prefixKey(key);
+    // [ZRANGE, key, min, max, BYSCORE]
+    const resp = await fetch(`${url}/zrange/${encodeURIComponent(finalKey)}/${min}/${max}/BYSCORE`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
+    });
+    if (!resp.ok) return [];
+    const data = (await resp.json()) as { result?: string[] };
+    return data.result ?? [];
+  } catch (err) {
+    console.warn('[redis] zRangeByScore failed:', errMsg(err));
+    return [];
+  }
+}

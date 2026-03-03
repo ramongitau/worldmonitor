@@ -35,6 +35,8 @@ function mapLevelToSeverity(level: string): SeverityLevel {
 // RPC handler
 // ========================================================================
 
+import { dispatchWebhooks } from '../../webhooks/dispatch';
+
 export async function classifyEvent(
   _ctx: ServerContext,
   req: ClassifyEventRequest,
@@ -108,11 +110,23 @@ Return: {"level":"...","category":"..."}`;
 
   if (!cached?.level || !cached?.category) return { classification: undefined };
 
+  const severity = mapLevelToSeverity(cached.level);
+
+  if (severity === 'SEVERITY_LEVEL_HIGH' || severity === 'SEVERITY_LEVEL_CRITICAL') {
+    // Fire-and-forget webhook dispatch for high severity events
+    void dispatchWebhooks('intelligence', {
+      title,
+      category: cached.category,
+      level: cached.level,
+      timestamp: new Date(cached.timestamp).toISOString()
+    }).catch(err => console.error('Webhook dispatch failed:', err));
+  }
+
   return {
     classification: {
       category: cached.category,
       subcategory: cached.level,
-      severity: mapLevelToSeverity(cached.level),
+      severity,
       confidence: 0.9,
       analysis: '',
       entities: [],

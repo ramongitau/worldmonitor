@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  pull_request:
+    paths-ignore:
+      - "*.md"
+      - ".planning/**"
+      - "docs/**"
+
+jobs:
+  unit-tests:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Run data/unit tests
+        run: npm run test:data
+      - name: Run sidecar/API tests
+        run: npm run test:sidecar

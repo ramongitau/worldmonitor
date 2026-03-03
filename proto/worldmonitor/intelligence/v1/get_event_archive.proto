@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package worldmonitor.intelligence.v1;
+
+import "buf/validate/validate.proto";
+import "sebuf/http/annotations.proto";
+import "worldmonitor/conflict/v1/ucdp_event.proto";
+import "worldmonitor/unrest/v1/unrest_event.proto";
+import "worldmonitor/seismology/v1/earthquake.proto";
+
+// GetEventArchiveRequest defines the parameters for querying historical events.
+message GetEventArchiveRequest {
+  // Start of the time range, as Unix epoch milliseconds.
+  int64 start_at = 1 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];
+  // End of the time range, as Unix epoch milliseconds.
+  int64 end_at = 2 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];
+  // Optional country code filter (ISO 3166-1 alpha-2).
+  string country_code = 3;
+  // Optional event types to include (e.g., "conflict", "unrest", "seismology", "maritime").
+  repeated string event_types = 4;
+  // Maximum number of events to return.
+  int32 limit = 5;
+  // Offset for pagination.
+  int32 offset = 6;
+}
+
+// ArchivedEvent represents a historical event from any domain.
+message ArchivedEvent {
+  // Unique identifier for the archived event.
+  string id = 1;
+  // Time the event occurred, as Unix epoch milliseconds.
+  int64 occurred_at = 2 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];
+  // Type of the event (e.g., "conflict", "unrest", "seismology", "maritime").
+  string type = 3;
+  // The actual event data, depending on the type.
+  oneof event {
+    worldmonitor.conflict.v1.UcdpViolenceEvent conflict = 4;
+    worldmonitor.unrest.v1.UnrestEvent unrest = 5;
+    worldmonitor.seismology.v1.Earthquake earthquake = 6;
+    worldmonitor.maritime.v1.AisDisruption maritime = 7;
+  }
+}
+
+// GetEventArchiveResponse contains the list of archived events matching the query.
+message GetEventArchiveResponse {
+  // The list of archived events.
+  repeated ArchivedEvent events = 1;
+  // Total number of events matching the query across all pages.
+  int32 total_count = 2;
+}

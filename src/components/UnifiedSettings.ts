@@ -8,6 +8,8 @@ import { escapeHtml } from '@/utils/sanitize';
 import { trackLanguageChange } from '@/services/analytics';
 import type { PanelConfig } from '@/types';
 import type { StatusPanel } from './StatusPanel';
+import { AlertSettingsPanel } from './AlertSettingsPanel';
+import { ApiSettingsPanel } from './ApiSettingsPanel';
 
 const GEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
 
@@ -25,7 +27,7 @@ export interface UnifiedSettingsConfig {
   statusPanel?: StatusPanel | null;
 }
 
-type TabId = 'general' | 'panels' | 'sources' | 'status';
+type TabId = 'general' | 'panels' | 'sources' | 'status' | 'alerts' | 'api';
 
 export class UnifiedSettings {
   private overlay: HTMLElement;
@@ -36,6 +38,8 @@ export class UnifiedSettings {
   private activePanelCategory = 'all';
   private panelFilter = '';
   private escapeHandler: (e: KeyboardEvent) => void;
+  private alertSettingsPanel?: AlertSettingsPanel;
+  private apiSettingsPanel?: ApiSettingsPanel;
 
   constructor(config: UnifiedSettingsConfig) {
     this.config = config;
@@ -134,6 +138,17 @@ export class UnifiedSettings {
       }
     });
 
+    // Keyboard support for ARIA roles
+    this.overlay.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (target.getAttribute('role') === 'checkbox' || target.getAttribute('role') === 'tab') {
+          e.preventDefault();
+          target.click();
+        }
+      }
+    });
+
     // Handle input events for search
     this.overlay.addEventListener('input', (e) => {
       const target = e.target as HTMLInputElement;
@@ -227,13 +242,15 @@ export class UnifiedSettings {
           <span class="modal-title">${t('header.settings')}</span>
           <button class="modal-close unified-settings-close">×</button>
         </div>
-        <div class="unified-settings-tabs">
-          <button class="${tabClass('general')}" data-tab="general">${t('header.tabGeneral')}</button>
-          <button class="${tabClass('panels')}" data-tab="panels">${t('header.tabPanels')}</button>
-          <button class="${tabClass('sources')}" data-tab="sources">${t('header.tabSources')}</button>
-          <button class="${tabClass('status')}" data-tab="status">${t('panels.status')}</button>
+        <div class="unified-settings-tabs" role="tablist">
+          <button class="${tabClass('general')}" data-tab="general" role="tab" aria-selected="${this.activeTab === 'general'}">${t('header.tabGeneral')}</button>
+          <button class="${tabClass('panels')}" data-tab="panels" role="tab" aria-selected="${this.activeTab === 'panels'}">${t('header.tabPanels')}</button>
+          <button class="${tabClass('sources')}" data-tab="sources" role="tab" aria-selected="${this.activeTab === 'sources'}">${t('header.tabSources')}</button>
+          <button class="${tabClass('status')}" data-tab="status" role="tab" aria-selected="${this.activeTab === 'status'}">${t('panels.status')}</button>
+          <button class="${tabClass('alerts')}" data-tab="alerts" role="tab" aria-selected="${this.activeTab === 'alerts'}">Alerts</button>
+          <button class="${tabClass('api')}" data-tab="api" role="tab" aria-selected="${this.activeTab === 'api'}">API & Webhooks</button>
         </div>
-        <div class="unified-settings-tab-panel${this.activeTab === 'general' ? ' active' : ''}" data-panel-id="general">
+        <div class="unified-settings-tab-panel${this.activeTab === 'general' ? ' active' : ''}" data-panel-id="general" role="tabpanel">
           ${this.renderGeneralContent()}
         </div>
         <div class="unified-settings-tab-panel${this.activeTab === 'panels' ? ' active' : ''}" data-panel-id="panels">
@@ -262,6 +279,12 @@ export class UnifiedSettings {
         <div class="unified-settings-tab-panel${this.activeTab === 'status' ? ' active' : ''}" data-panel-id="status">
           <div class="us-status-content" id="usStatusContent"></div>
         </div>
+        <div class="unified-settings-tab-panel${this.activeTab === 'alerts' ? ' active' : ''}" data-panel-id="alerts">
+          <div class="us-alerts-content" id="usAlertsContent"></div>
+        </div>
+        <div class="unified-settings-tab-panel${this.activeTab === 'api' ? ' active' : ''}" data-panel-id="api">
+          <div class="us-api-content" id="usApiContent"></div>
+        </div>
       </div>
     `;
 
@@ -272,6 +295,8 @@ export class UnifiedSettings {
     this.renderSourcesGrid();
     this.updateSourcesCounter();
     this.renderStatusTab();
+    this.renderAlertsTab();
+    this.renderApiTab();
     if (!this.config.isDesktopApp) this.updateAiStatus();
   }
 
@@ -465,6 +490,38 @@ export class UnifiedSettings {
     }
   }
 
+  public refreshAlertsTab(): void {
+    if (this.activeTab === 'alerts') this.renderAlertsTab();
+  }
+
+  private renderAlertsTab(): void {
+    const container = this.overlay.querySelector('#usAlertsContent') as HTMLElement;
+    if (!container) return;
+    
+    if (!this.alertSettingsPanel) {
+      this.alertSettingsPanel = new AlertSettingsPanel();
+    }
+    this.alertSettingsPanel.render();
+    container.innerHTML = '';
+    container.appendChild(this.alertSettingsPanel.getElement());
+  }
+
+  public refreshApiTab(): void {
+    if (this.activeTab === 'api') this.renderApiTab();
+  }
+
+  private renderApiTab(): void {
+    const container = this.overlay.querySelector('#usApiContent') as HTMLElement;
+    if (!container) return;
+
+    if (!this.apiSettingsPanel) {
+      this.apiSettingsPanel = new ApiSettingsPanel();
+    }
+    this.apiSettingsPanel.render();
+    container.innerHTML = '';
+    container.appendChild(this.apiSettingsPanel.getElement());
+  }
+
   private getAvailablePanelCategories(): Array<{ key: string; label: string }> {
     const panelKeys = new Set(Object.keys(this.config.getPanelSettings()));
     const variant = SITE_VARIANT || 'full';
@@ -525,7 +582,7 @@ export class UnifiedSettings {
 
     const entries = this.getVisiblePanelEntries();
     container.innerHTML = entries.map(([key, panel]) => `
-      <div class="panel-toggle-item ${panel.enabled ? 'active' : ''}" data-panel="${escapeHtml(key)}">
+      <div class="panel-toggle-item ${panel.enabled ? 'active' : ''}" data-panel="${escapeHtml(key)}" role="checkbox" aria-checked="${panel.enabled}" tabIndex="0">
         <div class="panel-toggle-checkbox">${panel.enabled ? '✓' : ''}</div>
         <span class="panel-toggle-label">${escapeHtml(this.config.getLocalizedPanelName(key, panel.name))}</span>
       </div>
@@ -615,7 +672,7 @@ export class UnifiedSettings {
       const isEnabled = !disabled.has(source);
       const escaped = escapeHtml(source);
       return `
-        <div class="source-toggle-item ${isEnabled ? 'active' : ''}" data-source="${escaped}">
+        <div class="source-toggle-item ${isEnabled ? 'active' : ''}" data-source="${escaped}" role="checkbox" aria-checked="${isEnabled}" tabIndex="0">
           <div class="source-toggle-checkbox">${isEnabled ? '✓' : ''}</div>
           <span class="source-toggle-label">${escaped}</span>
         </div>

@@ -15,6 +15,11 @@ export interface CountryIntelData {
   fallback?: boolean;
 }
 
+export interface CiiHistoryPoint {
+  ts: number;
+  score: number;
+}
+
 export interface StockIndexData {
   available: boolean;
   code: string;
@@ -86,6 +91,7 @@ export interface CountryBriefPanel {
   updateSignalDetails?(details: CountryDeepDiveSignalDetails): void;
   updateMilitaryActivity?(summary: CountryDeepDiveMilitarySummary): void;
   updateEconomicIndicators?(indicators: CountryDeepDiveEconomicIndicator[]): void;
+  updateCiiHistory?(points: CiiHistoryPoint[]): void;
   maximize?(): void;
   minimize?(): void;
   getIsMaximized?(): boolean;

@@ -101,6 +101,9 @@ const UPSTASH_ENABLED = !!(
 );
 const RELAY_ENV_PREFIX = process.env.RELAY_ENV ? `${process.env.RELAY_ENV}:` : '';
 const OREF_REDIS_KEY = `${RELAY_ENV_PREFIX}relay:oref:history:v1`;
+const EVENT_ARCHIVE_DATA_KEY = `${RELAY_ENV_PREFIX}archive:data:v1`;
+const EVENT_ARCHIVE_INDEX_KEY = `${RELAY_ENV_PREFIX}archive:index:v1`;
+const UPSTASH_PIPELINE_URL = UPSTASH_REDIS_REST_URL ? `${UPSTASH_REDIS_REST_URL}/pipeline` : '';
 
 if (UPSTASH_REDIS_REST_URL && !UPSTASH_REDIS_REST_URL.startsWith('https://')) {
   console.warn('[Relay] UPSTASH_REDIS_REST_URL must start with https:// — Redis disabled');
@@ -164,6 +167,78 @@ function upstashSet(key, value, ttlSeconds) {
     req.on('timeout', () => { req.destroy(); resolve(false); });
     req.end(body);
   });
+}
+
+/**
+ * Run multiple Redis commands in a single pipeline request.
+ * @param {Array<Array<string>>} commands 
+ */
+function upstashPipeline(commands) {
+  return new Promise((resolve) => {
+    if (!UPSTASH_ENABLED || !commands.length) return resolve(null);
+    const req = https.request(UPSTASH_PIPELINE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    }, (resp) => {
+      let data = '';
+      resp.on('data', (chunk) => { data += chunk; });
+      resp.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end(JSON.stringify(commands));
+  });
+}
+
+/**
+ * Archives a batch of events into Redis.
+ * Uses a Sorted Set for time-based indexing and a Hash for data storage.
+ * @param {string} type 'conflict' | 'maritime' | 'seismology' | 'unrest'
+ * @param {Array<{id: string, occurredAt: number, data: any}>} events 
+ */
+async function archiveEvents(type, events) {
+  if (!UPSTASH_ENABLED || !events.length) return;
+  
+  const pipeline = [];
+  const now = Date.now();
+  const maxAgeMs = 30 * 24 * 60 * 60 * 1000; // 30 day retention for archive
+  
+  for (const event of events) {
+    if (!event.id || !event.occurredAt) continue;
+    
+    // Skip very old events (>30d) during archival
+    if (now - event.occurredAt > maxAgeMs) continue;
+
+    const storageId = `${type}:${event.id}`;
+    const archiveItem = {
+      id: event.id,
+      occurredAt: event.occurredAt,
+      type,
+      [type]: event.data,
+    };
+
+    // 1. Store the full JSON in a Hash
+    pipeline.push(['HSET', EVENT_ARCHIVE_DATA_KEY, storageId, JSON.stringify(archiveItem)]);
+    
+    // 2. Index the event in a Sorted Set (score = occurredAt)
+    pipeline.push(['ZADD', EVENT_ARCHIVE_INDEX_KEY, String(event.occurredAt), storageId]);
+  }
+
+  if (pipeline.length > 0) {
+    const results = await upstashPipeline(pipeline);
+    const ok = results && Array.isArray(results) && !results.some(r => r.error);
+    if (ok) {
+      console.log(`[Archive] Successfully archived ${events.length} ${type} events`);
+    } else {
+      console.warn(`[Archive] Pipeline failed for ${type} events:`, results?.find(r => r.error)?.error || 'Unknown error');
+    }
+  }
 }
 
 let upstreamSocket = null;
@@ -764,6 +839,10 @@ async function startOrefPollLoop() {
     orefFetchAlerts().catch(e => console.warn('[Relay] OREF poll error:', e?.message || e));
   }, OREF_POLL_INTERVAL_MS).unref?.();
   console.log(`[Relay] OREF poll loop started (interval ${OREF_POLL_INTERVAL_MS}ms)`);
+  
+  startUcdpSeedLoop();
+  startEarthquakeSeedLoop();
+  startUnrestSeedLoop();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -867,6 +946,16 @@ async function seedUcdpEvents() {
     const payload = { events: mapped, fetchedAt: Date.now(), version, totalRaw: allEvents.length, filteredCount: mapped.length };
     const ok = await upstashSet(UCDP_REDIS_KEY, payload, UCDP_TTL_SECONDS);
     console.log(`[UCDP] Seeded ${mapped.length} events (raw: ${allEvents.length}, failed pages: ${failedPages}, redis: ${ok ? 'OK' : 'FAIL'})`);
+
+    // Archive these events for history
+    if (mapped.length > 0) {
+      const archiveBatch = mapped.map(e => ({
+        id: e.id,
+        occurredAt: e.dateStart,
+        data: e
+      }));
+      await archiveEvents('conflict', archiveBatch);
+    }
   } catch (e) {
     console.warn('[UCDP] Seed error:', e?.message || e);
   }
@@ -1576,6 +1665,18 @@ function buildSnapshot() {
     disruptions: detectDisruptions(),
     density: calculateDensityZones(),
   };
+
+  // Archive maritime disruptions for history
+  if (lastSnapshot.disruptions.length > 0) {
+    const archiveBatch = lastSnapshot.disruptions.map(d => ({
+      id: d.id,
+      occurredAt: now,
+      data: d
+    }));
+    // Fire and forget archival for AIS disruptions to avoid blocking snapshot
+    archiveEvents('maritime', archiveBatch).catch(() => {});
+  }
+
   lastSnapshotAt = now;
 
   // Pre-serialize JSON once (avoid per-request JSON.stringify)
@@ -3564,6 +3665,8 @@ server.listen(PORT, () => {
   startTelegramPollLoop();
   startOrefPollLoop();
   startUcdpSeedLoop();
+  startEarthquakeSeedLoop();
+  startUnrestSeedLoop();
 });
 
 wss.on('connection', (ws, req) => {

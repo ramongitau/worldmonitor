@@ -39,6 +39,7 @@ import { PanelLayoutManager } from '@/app/panel-layout';
 import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion } from '@/utils/user-location';
+import { initializeDefaultRules } from '@/services/alert-engine';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
 
@@ -108,7 +109,7 @@ export class App {
           panelSettings[key] = { ...config };
         }
       }
-      console.log('[App] Loaded panel settings from storage:', Object.entries(panelSettings).filter(([_, v]) => !v.enabled).map(([k]) => k));
+      console.log('[App] Loaded panel settings from storage:', Object.entries(panelSettings).filter(([, v]) => !v.enabled).map(([k]) => k));
 
       // One-time migration: reorder panels for existing users (v1.9 panel layout)
       const PANEL_ORDER_MIGRATION_KEY = 'worldmonitor-panel-order-v1.9';
@@ -181,7 +182,7 @@ export class App {
       saveToStorage(STORAGE_KEYS.panels, panelSettings);
     }
 
-    let initialUrlState: ParsedMapUrlState | null = parseMapUrlState(window.location.search, mapLayers);
+    const initialUrlState: ParsedMapUrlState | null = parseMapUrlState(window.location.search, mapLayers);
     if (initialUrlState.layers) {
       if (currentVariant === 'tech') {
         const geoLayers: (keyof MapLayers)[] = ['conflicts', 'bases', 'hotspots', 'nuclear', 'irradiators', 'sanctions', 'military', 'protests', 'pipelines', 'waterways', 'ais', 'flights', 'spaceports', 'minerals'];
@@ -345,6 +346,9 @@ export class App {
         if (ok) mlWorker.loadModel('embeddings').catch(() => { });
       }).catch(() => { });
     }
+
+    // Initialize Default Alert Rules
+    initializeDefaultRules();
 
     this.unsubAiFlow = subscribeAiFlowChange((key) => {
       if (key === 'browserModel') {

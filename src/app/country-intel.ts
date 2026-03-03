@@ -25,6 +25,7 @@ import { collectStoryData } from '@/services/story-data';
 import { renderStoryToCanvas } from '@/services/story-renderer';
 import { openStoryModal } from '@/components/StoryModal';
 import { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
+import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { BETA_MODE } from '@/config/beta';
 import { MILITARY_BASES } from '@/config';
 import { mlWorker } from '@/services/ml-worker';
@@ -193,6 +194,17 @@ export class CountryIntelManager implements AppModule {
       })
       .catch(() => {
         if (this.ctx.countryBriefPage?.getCode() === code) this.ctx.countryBriefPage.updateMarkets([]);
+      });
+
+    const intelClient = new IntelligenceServiceClient('', { fetch: (...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args) });
+    intelClient.getCiiHistory({ region: code, days: 7 })
+      .then((resp) => {
+        if (this.ctx.countryBriefPage?.getCode() === code) {
+          this.ctx.countryBriefPage.updateCiiHistory?.(resp.points);
+        }
+      })
+      .catch((err) => {
+        console.error('[CountryIntel] History fetch failed:', err);
       });
 
     const searchTerms = CountryIntelManager.getCountrySearchTerms(country, code);

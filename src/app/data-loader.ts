@@ -84,6 +84,8 @@ import { getHydratedData } from '@/services/bootstrap';
 import { canQueueAiClassification, AI_CLASSIFY_MAX_PER_FEED } from '@/services/ai-classify-queue';
 import { classifyWithAI } from '@/services/threat-classifier';
 import { ingestHeadlines } from '@/services/trending-keywords';
+import { evaluateCiiAlerts, evaluateKeywordAlerts, evaluateOrefAlerts } from '@/services/alert-engine';
+import { calculateCII } from '@/services/country-instability';
 import type { ListFeedDigestResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import type { GetSectorSummaryResponse } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { mountCommunityWidget } from '@/components/CommunityWidget';
@@ -585,6 +587,7 @@ export class DataLoaderManager implements AppModule {
         }
 
         checkBatchForBreakingAlerts(items);
+        evaluateKeywordAlerts(items);
         this.flashMapForNews(items);
         this.renderNewsForCategory(category, items);
 
@@ -628,6 +631,7 @@ export class DataLoaderManager implements AppModule {
         }
 
         checkBatchForBreakingAlerts(items);
+        evaluateKeywordAlerts(items);
         this.flashMapForNews(items);
         this.renderNewsForCategory(category, items);
 
@@ -715,6 +719,7 @@ export class DataLoaderManager implements AppModule {
           scheduleRender(partialItems);
           this.flashMapForNews(partialItems);
           checkBatchForBreakingAlerts(partialItems);
+          evaluateKeywordAlerts(partialItems);
         },
       });
 
@@ -818,6 +823,7 @@ export class DataLoaderManager implements AppModule {
           .map(protoItemToNewsItem)
           .filter(i => enabledIntelNames.has(i.source));
         checkBatchForBreakingAlerts(intel);
+        evaluateKeywordAlerts(intel);
         this.renderNewsForCategory('intel', intel);
         if (intelPanel) {
           try {
@@ -859,6 +865,7 @@ export class DataLoaderManager implements AppModule {
           if (intelResult[0]?.status === 'fulfilled') {
             const intel = intelResult[0].value;
             checkBatchForBreakingAlerts(intel);
+            evaluateKeywordAlerts(intel);
             this.renderNewsForCategory('intel', intel);
             if (intelPanel) {
               try {
@@ -1369,14 +1376,20 @@ export class DataLoaderManager implements AppModule {
         const historyCount24h = data.historyCount24h ?? 0;
         ingestOrefForCII(alertCount, historyCount24h);
         this.ctx.intelligenceCache.orefAlerts = { alertCount, historyCount24h };
-        if (data.alerts?.length) dispatchOrefBreakingAlert(data.alerts);
+        if (data.alerts?.length) {
+          dispatchOrefBreakingAlert(data.alerts);
+          evaluateOrefAlerts(data.alerts);
+        }
         onOrefAlertsUpdate((update) => {
           (this.ctx.panels['oref-sirens'] as OrefSirensPanel)?.setData(update);
           const updAlerts = update.alerts?.length ?? 0;
           const updHistory = update.historyCount24h ?? 0;
           ingestOrefForCII(updAlerts, updHistory);
           this.ctx.intelligenceCache.orefAlerts = { alertCount: updAlerts, historyCount24h: updHistory };
-          if (update.alerts?.length) dispatchOrefBreakingAlert(update.alerts);
+          if (update.alerts?.length) {
+            dispatchOrefBreakingAlert(update.alerts);
+            evaluateOrefAlerts(update.alerts);
+          }
         });
         startOrefPolling();
       } catch (error) {
@@ -1433,6 +1446,7 @@ export class DataLoaderManager implements AppModule {
 
     (this.ctx.panels['cii'] as CIIPanel)?.refresh();
     console.log('[Intelligence] All signals loaded for CII calculation');
+    evaluateCiiAlerts(calculateCII());
   }
 
   async loadOutages(): Promise<void> {

@@ -9,6 +9,8 @@ import "worldmonitor/intelligence/v1/classify_event.proto";
 import "worldmonitor/intelligence/v1/get_country_intel_brief.proto";
 import "worldmonitor/intelligence/v1/search_gdelt_documents.proto";
 import "worldmonitor/intelligence/v1/deduct_situation.proto";
+import "worldmonitor/intelligence/v1/get_cii_history.proto";
+import "worldmonitor/intelligence/v1/get_event_archive.proto";
 
 // IntelligenceService provides APIs for cross-domain intelligence synthesis including
 // risk scores, PizzINT monitoring, GDELT tension analysis, and AI-powered classification.
@@ -38,5 +40,15 @@ service IntelligenceService {
   // SearchGdeltDocuments searches the GDELT 2.0 Doc API for news articles.
   rpc SearchGdeltDocuments(SearchGdeltDocumentsRequest) returns (SearchGdeltDocumentsResponse) {
     option (sebuf.http.config) = {path: "/search-gdelt-documents", method: HTTP_METHOD_GET};
+  }
+
+  // GetCiiHistory retrieves historical CII data for a specific country.
+  rpc GetCiiHistory(GetCiiHistoryRequest) returns (GetCiiHistoryResponse) {
+    option (sebuf.http.config) = {path: "/get-cii-history", method: HTTP_METHOD_GET};
+  }
+
+  // GetEventArchive retrieves historical events matching the query filters.
+  rpc GetEventArchive(GetEventArchiveRequest) returns (GetEventArchiveResponse) {
+    option (sebuf.http.config) = {path: "/get-event-archive", method: HTTP_METHOD_GET};
   }
 }

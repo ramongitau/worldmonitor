@@ -206,6 +206,7 @@ export class Panel {
 
     const headerLeft = document.createElement('div');
     headerLeft.className = 'panel-header-left';
+    headerLeft.id = `panel-header-${options.id}`;
 
     const title = document.createElement('span');
     title.className = 'panel-title';
@@ -258,6 +259,8 @@ export class Panel {
     this.content = document.createElement('div');
     this.content.className = 'panel-content';
     this.content.id = `${options.id}Content`;
+    this.content.setAttribute('role', 'region');
+    this.content.setAttribute('aria-labelledby', `panel-header-${options.id}`);
 
     this.element.appendChild(this.header);
     this.element.appendChild(this.content);
@@ -266,6 +269,9 @@ export class Panel {
     this.resizeHandle = document.createElement('div');
     this.resizeHandle.className = 'panel-resize-handle';
     this.resizeHandle.title = t('components.panel.dragToResize');
+    this.resizeHandle.setAttribute('role', 'separator');
+    this.resizeHandle.setAttribute('aria-orientation', 'horizontal');
+    this.resizeHandle.tabIndex = 0; // Allow keyboard focus
     this.element.appendChild(this.resizeHandle);
     this.setupResizeHandlers();
 
@@ -407,6 +413,18 @@ export class Panel {
     };
 
     this.resizeHandle.addEventListener('mousedown', onMouseDown);
+
+    // Keyboard support for accessibility
+    this.resizeHandle.addEventListener('keydown', (e) => {
+      const currentSpan = getRowSpan(this.element);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        setSpanClass(this.element, Math.min(4, currentSpan + 1));
+        savePanelSpan(this.panelId, getRowSpan(this.element));
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        setSpanClass(this.element, Math.max(1, currentSpan - 1));
+        savePanelSpan(this.panelId, getRowSpan(this.element));
+      }
+    });
 
     // Double-click to reset
     this.resizeHandle.addEventListener('dblclick', () => {

@@ -1,3 +1,5 @@
+import { ConvexHttpClient } from "convex/browser";
+
 const DESKTOP_ORIGIN_PATTERNS = [
   /^https?:\/\/tauri\.localhost(:\d+)?$/,
   /^https?:\/\/[a-z0-9-]+\.tauri\.localhost(:\d+)?$/i,
@@ -13,6 +15,11 @@ const BROWSER_ORIGIN_PATTERNS = [
     /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
   ]),
 ];
+
+let convexClient = null;
+if (process.env.CONVEX_URL) {
+  convexClient = new ConvexHttpClient(process.env.CONVEX_URL);
+}
 
 function isDesktopOrigin(origin) {
   return Boolean(origin) && DESKTOP_ORIGIN_PATTERNS.some(p => p.test(origin));
@@ -31,7 +38,23 @@ function extractOriginFromReferer(referer) {
   }
 }
 
-export function validateApiKey(req) {
+async function checkKey(k) {
+  const validKeysStr = process.env.WORLDMONITOR_VALID_KEYS || '';
+  const validKeys = validKeysStr.split(',').filter(Boolean);
+  if (validKeys.includes(k)) return true;
+  
+  if (convexClient) {
+    try {
+      const dbKey = await convexClient.query("apikeys:getByKey", { key: k });
+      if (dbKey && dbKey.isActive) return true;
+    } catch (err) {
+      console.error('Failed to validate API key with Convex:', err);
+    }
+  }
+  return false;
+}
+
+export async function validateApiKey(req) {
   const key = req.headers.get('X-WorldMonitor-Key');
   // Same-origin browser requests don't send Origin (per CORS spec).
   // Fall back to Referer to identify trusted same-origin callers.
@@ -40,24 +63,24 @@ export function validateApiKey(req) {
   // Desktop app — always require API key
   if (isDesktopOrigin(origin)) {
     if (!key) return { valid: false, required: true, error: 'API key required for desktop access' };
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+    const isValid = await checkKey(key);
+    if (!isValid) return { valid: false, required: true, error: 'Invalid API key' };
     return { valid: true, required: true };
   }
 
   // Trusted browser origin (worldmonitor.app, Vercel previews, localhost dev) — no key needed
   if (isTrustedBrowserOrigin(origin)) {
     if (key) {
-      const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-      if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+      const isValid = await checkKey(key);
+      if (!isValid) return { valid: false, required: true, error: 'Invalid API key' };
     }
     return { valid: true, required: false };
   }
 
   // Explicit key provided from unknown origin — validate it
   if (key) {
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
+    const isValid = await checkKey(key);
+    if (!isValid) return { valid: false, required: true, error: 'Invalid API key' };
     return { valid: true, required: true };
   }
 

@@ -201,7 +201,7 @@ export class PanelLayoutManager implements AppModule {
           <span id="unifiedSettingsMount"></span>
         </div>
       </div>
-      <div class="main-content">
+      <div class="main-content" id="main-content">
         <div class="map-section" id="mapSection">
           <div class="panel-header">
             <div class="panel-header-left">
