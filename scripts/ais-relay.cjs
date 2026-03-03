@@ -36,9 +36,83 @@ const UPSTREAM_QUEUE_HARD_CAP = Math.max(
 );
 const UPSTREAM_DRAIN_BATCH = Math.max(1, Number(process.env.AIS_UPSTREAM_DRAIN_BATCH || 250));
 const UPSTREAM_DRAIN_BUDGET_MS = Math.max(2, Number(process.env.AIS_UPSTREAM_DRAIN_BUDGET_MS || 20));
-const MAX_VESSELS = 50000; // hard cap on vessels Map
-const MAX_VESSEL_HISTORY = 50000;
+
+function safeInt(envVal, fallback, min) {
+  if (envVal == null || envVal === '') return fallback;
+  const n = Number(envVal);
+  return Number.isFinite(n) ? Math.max(min, Math.floor(n)) : fallback;
+}
+
+const MAX_VESSELS = safeInt(process.env.AIS_MAX_VESSELS, 20000, 1000);
+const MAX_VESSEL_HISTORY = safeInt(process.env.AIS_MAX_VESSEL_HISTORY, 20000, 1000);
 const MAX_DENSITY_CELLS = 5000;
+const MEMORY_CLEANUP_THRESHOLD_GB = (() => {
+  const n = Number(process.env.RELAY_MEMORY_CLEANUP_GB);
+  return Number.isFinite(n) && n > 0 ? n : 2.0;
+})();
+
+const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || '';
+const RELAY_AUTH_HEADER = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
+const ALLOW_UNAUTHENTICATED_RELAY = process.env.ALLOW_UNAUTHENTICATED_RELAY === 'true';
+const IS_PRODUCTION_RELAY = process.env.NODE_ENV === 'production'
+  || !!process.env.RAILWAY_ENVIRONMENT
+  || !!process.env.RAILWAY_PROJECT_ID
+  || !!process.env.RAILWAY_STATIC_URL;
+
+const RELAY_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.RELAY_RATE_LIMIT_WINDOW_MS || 60000));
+const RELAY_RATE_LIMIT_MAX = Number.isFinite(Number(process.env.RELAY_RATE_LIMIT_MAX))
+  ? Number(process.env.RELAY_RATE_LIMIT_MAX) : 1200;
+const RELAY_OPENSKY_RATE_LIMIT_MAX = Number.isFinite(Number(process.env.RELAY_OPENSKY_RATE_LIMIT_MAX))
+  ? Number(process.env.RELAY_OPENSKY_RATE_LIMIT_MAX) : 600;
+const RELAY_RSS_RATE_LIMIT_MAX = Number.isFinite(Number(process.env.RELAY_RSS_RATE_LIMIT_MAX))
+  ? Number(process.env.RELAY_RSS_RATE_LIMIT_MAX) : 300;
+const RELAY_LOG_THROTTLE_MS = Math.max(1000, Number(process.env.RELAY_LOG_THROTTLE_MS || 10000));
+
+const ALLOW_VERCEL_PREVIEW_ORIGINS = process.env.ALLOW_VERCEL_PREVIEW_ORIGINS === 'true';
+
+// OREF (Israel Home Front Command) siren alerts — fetched via HTTP proxy (Israel exit)
+const OREF_PROXY_AUTH = process.env.OREF_PROXY_AUTH || ''; // format: user:pass@host:port
+const OREF_ALERTS_URL = 'https://www.oref.org.il/WarningMessages/alert/alerts.json';
+const OREF_HISTORY_URL = 'https://www.oref.org.il/WarningMessages/alert/History/AlertsHistory.json';
+const OREF_POLL_INTERVAL_MS = Math.max(30_000, Number(process.env.OREF_POLL_INTERVAL_MS || 300_000));
+const OREF_ENABLED = !!OREF_PROXY_AUTH;
+const RELAY_OREF_RATE_LIMIT_MAX = Number.isFinite(Number(process.env.RELAY_OREF_RATE_LIMIT_MAX))
+  ? Number(process.env.RELAY_OREF_RATE_LIMIT_MAX) : 600;
+
+if (IS_PRODUCTION_RELAY && !RELAY_SHARED_SECRET && !ALLOW_UNAUTHENTICATED_RELAY) {
+  console.error('[Relay] Error: RELAY_SHARED_SECRET is required in production');
+  console.error('[Relay] Set RELAY_SHARED_SECRET on Railway and Vercel to secure relay endpoints');
+  console.error('[Relay] To bypass temporarily (not recommended), set ALLOW_UNAUTHENTICATED_RELAY=true');
+  process.exit(1);
+}
+
+// Upstash Redis REST helpers — persist OREF history across restarts
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL || '';
+const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const UPSTASH_ENABLED = !!(
+  UPSTASH_REDIS_REST_URL &&
+  UPSTASH_REDIS_REST_TOKEN &&
+  UPSTASH_REDIS_REST_URL.startsWith('https://')
+);
+const RELAY_ENV_PREFIX = process.env.RELAY_ENV ? `${process.env.RELAY_ENV}:` : '';
+const OREF_REDIS_KEY = `${RELAY_ENV_PREFIX}relay:oref:history:v1`;
+const EVENT_ARCHIVE_DATA_KEY = `${RELAY_ENV_PREFIX}archive:data:v1`;
+const EVENT_ARCHIVE_INDEX_KEY = `${RELAY_ENV_PREFIX}archive:index:v1`;
+const UPSTASH_PIPELINE_URL = UPSTASH_REDIS_REST_URL ? `${UPSTASH_REDIS_REST_URL}/pipeline` : '';
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+if (UPSTASH_REDIS_REST_URL && !UPSTASH_REDIS_REST_URL.startsWith('https://')) {
+  console.warn('[Relay] UPSTASH_REDIS_REST_URL must start with https:// — Redis disabled');
+}
+if (UPSTASH_ENABLED) {
+  console.log(`[Relay] Upstash Redis enabled (key: ${OREF_REDIS_KEY})`);
+}
+
+// Telegram early signals configuration
+const TELEGRAM_ENABLED = Boolean(process.env.TELEGRAM_API_ID && process.env.TELEGRAM_API_HASH && process.env.TELEGRAM_SESSION);
+const TELEGRAM_POLL_INTERVAL_MS = Math.max(15_000, Number(process.env.TELEGRAM_POLL_INTERVAL_MS || 60_000));
+const TELEGRAM_MAX_FEED_ITEMS = Math.max(50, Number(process.env.TELEGRAM_MAX_FEED_ITEMS || 200));
+const TELEGRAM_MAX_TEXT_CHARS = Math.max(200, Number(process.env.TELEGRAM_MAX_TEXT_CHARS || 800));
 
 let upstreamSocket = null;
 let upstreamPaused = false;
@@ -174,23 +248,392 @@ function dequeueUpstreamMessage() {
   return raw;
 }
 
-function clearUpstreamQueue() {
-  upstreamQueue = [];
-  upstreamQueueReadIndex = 0;
-  upstreamDrainScheduled = false;
+function upstashGet(key) {
+  return new Promise((resolve) => {
+    if (!UPSTASH_ENABLED) return resolve(null);
+    const url = new URL(`/get/${encodeURIComponent(key)}`, UPSTASH_REDIS_REST_URL);
+    const req = https.request(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+      timeout: 5000,
+    }, (resp) => {
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        resp.resume();
+        return resolve(null);
+      }
+      let data = '';
+      resp.on('data', (chunk) => { data += chunk; });
+      resp.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed?.result) return resolve(JSON.parse(parsed.result));
+          resolve(null);
+        } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end();
+  });
 }
 
+function upstashSet(key, value, ttlSeconds) {
+  return new Promise((resolve) => {
+    if (!UPSTASH_ENABLED) return resolve(false);
+    const url = new URL('/', UPSTASH_REDIS_REST_URL);
+    const body = JSON.stringify(['SET', key, JSON.stringify(value), 'EX', String(ttlSeconds)]);
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    }, (resp) => {
+      let data = '';
+      resp.on('data', (chunk) => { data += chunk; });
+      resp.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed?.result === 'OK');
+        } catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.end(body);
+  });
+}
+
+function upstashPipeline(commands) {
+  return new Promise((resolve) => {
+    if (!UPSTASH_ENABLED || !commands.length) return resolve(null);
+    const req = https.request(UPSTASH_PIPELINE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    }, (resp) => {
+      let data = '';
+      resp.on('data', (chunk) => { data += chunk; });
+      resp.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end(JSON.stringify(commands));
+  });
+}
+
+async function archiveEvents(type, events) {
+  if (!UPSTASH_ENABLED || !events.length) return;
+  
+  const pipeline = [];
+  const now = Date.now();
+  const maxAgeMs = 30 * 24 * 60 * 60 * 1000;
+  
+  for (const event of events) {
+    if (!event.id || !event.occurredAt) continue;
+    if (now - event.occurredAt > maxAgeMs) continue;
+
+    const storageId = `${type}:${event.id}`;
+    const archiveItem = {
+      id: event.id,
+      occurredAt: event.occurredAt,
+      type,
+      [type]: event.data,
+    };
+
+    pipeline.push(['HSET', EVENT_ARCHIVE_DATA_KEY, storageId, JSON.stringify(archiveItem)]);
+    pipeline.push(['ZADD', EVENT_ARCHIVE_INDEX_KEY, String(event.occurredAt), storageId]);
+  }
+
+  if (pipeline.length > 0) {
+    const results = await upstashPipeline(pipeline);
+    const ok = results && Array.isArray(results) && !results.some(r => r.error);
+    if (ok) {
+      console.log(`[Archive] Successfully archived ${events.length} ${type} events`);
+    }
+  }
+}
+
+/**
+ * Evict oldest entries from a Map if it exceeds maxSize.
+ * @param {Map} map 
+ * @param {number} maxSize 
+ * @param {Function} getTimestamp 
+ */
 function evictMapByTimestamp(map, maxSize, getTimestamp) {
   if (map.size <= maxSize) return;
-  const sorted = [...map.entries()].sort((a, b) => {
-    const tsA = Number(getTimestamp(a[1])) || 0;
-    const tsB = Number(getTimestamp(b[1])) || 0;
-    return tsA - tsB;
-  });
-  const removeCount = map.size - maxSize;
-  for (let i = 0; i < removeCount; i++) {
-    map.delete(sorted[i][0]);
+  const entries = [...map.entries()];
+  entries.sort((a, b) => getTimestamp(a[1]) - getTimestamp(b[1]));
+  const toRemove = entries.slice(0, map.size - maxSize);
+  for (const [key] of toRemove) {
+    map.delete(key);
   }
+}
+
+// Telegram integration — Early signals from key regional channels
+let telegramClient = null;
+const telegramHistory = new Map(); // key: channelId -> Set of messageId
+
+async function loadTelegramChannels() {
+  // Static list of high-value conflict/hazard channels
+  return [
+    { id: 'gazanow', name: 'Gaza Now' },
+    { id: 'south_front', name: 'SouthFront' },
+    { id: 'intel_slava', name: 'Intel Slava Z' },
+    { id: 'israel_radar', name: 'Israel Radar' },
+    { id: 'clashreport', name: 'Clash Report' },
+    { id: 'rybar', name: 'Rybar' },
+  ];
+}
+
+function normalizeTelegramMessage(msg, channel) {
+  return {
+    id: `tg-${msg.id}`,
+    channelId: channel.id,
+    channelName: channel.name,
+    text: (msg.message || '').substring(0, TELEGRAM_MAX_TEXT_CHARS),
+    occurredAt: msg.date * 1000,
+    link: `https://t.me/${channel.id}/${msg.id}`,
+  };
+}
+
+async function initTelegramClientIfNeeded() {
+  if (telegramClient || !TELEGRAM_ENABLED) return;
+  try {
+    const { TelegramClient } = require('telegram');
+    const { StringSession } = require('telegram/sessions');
+    const session = new StringSession(process.env.TELEGRAM_SESSION);
+    telegramClient = new TelegramClient(session, Number(process.env.TELEGRAM_API_ID), process.env.TELEGRAM_API_HASH, {
+      connectionRetries: 5,
+    });
+    await telegramClient.connect();
+    console.log('[Telegram] Connected successfully');
+  } catch (err) {
+    console.error('[Telegram] Connection failed:', err.message);
+    telegramClient = null;
+  }
+}
+
+async function pollTelegramOnce() {
+  if (!telegramClient) await initTelegramClientIfNeeded();
+  if (!telegramClient) return;
+
+  const channels = await loadTelegramChannels();
+  const newSignals = [];
+
+  for (const channel of channels) {
+    try {
+      const messages = await telegramClient.getMessages(channel.id, { limit: 5 });
+      if (!telegramHistory.has(channel.id)) telegramHistory.set(channel.id, new Set());
+      const history = telegramHistory.get(channel.id);
+
+      for (const msg of messages) {
+        if (!history.has(msg.id)) {
+          history.add(msg.id);
+          const signal = normalizeTelegramMessage(msg, channel);
+          newSignals.push(signal);
+        }
+      }
+      
+      // Keep per-channel history manageable
+      if (history.size > 50) {
+        const sorted = [...history].sort((a, b) => b - a);
+        telegramHistory.set(channel.id, new Set(sorted.slice(0, 50)));
+      }
+    } catch (err) {
+      console.warn(`[Telegram] Error polling ${channel.id}:`, err.message);
+    }
+  }
+
+  if (newSignals.length > 0) {
+    console.log(`[Telegram] Found ${newSignals.length} new early signals`);
+    await archiveEvents('conflict', newSignals.map(s => ({
+      id: s.id,
+      occurredAt: s.occurredAt,
+      data: s,
+    })));
+  }
+}
+
+async function guardedTelegramPoll() {
+  try {
+    await pollTelegramOnce();
+  } catch (err) {
+    console.error('[Telegram] Poll loop error:', err.message);
+  }
+}
+
+function startTelegramPollLoop() {
+  if (!TELEGRAM_ENABLED) return;
+  console.log('[Telegram] Starting poll loop...');
+  setInterval(guardedTelegramPoll, TELEGRAM_POLL_INTERVAL_MS);
+  guardedTelegramPoll();
+}
+
+// OREF (Israel Siren Alerts) — Proxy-based polling with Israel exit
+const orefHistory = new Map(); // key: alertId -> alert data
+let orefBootstrapDone = false;
+
+function stripBom(str) {
+  if (str.charCodeAt(0) === 0xFEFF) return str.slice(1);
+  return str;
+}
+
+function redactOrefError(err) {
+  const msg = err.message || String(err);
+  return msg.replace(/[a-zA-Z0-9._%+-]+:[a-zA-Z0-9.-]+@/g, 'REDACTED@');
+}
+
+function orefDateToUTC(dateStr) {
+  try {
+    const [d, t] = dateStr.split(' ');
+    const [day, month, year] = d.split('.');
+    const [hour, min, sec] = t.split(':');
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(min), Number(sec));
+  } catch {
+    return Date.now();
+  }
+}
+
+function orefCurlFetch(url) {
+  return new Promise((resolve) => {
+    const { exec } = require('child_process');
+    // Use curl with proxy if OREF_PROXY_AUTH is set
+    const proxyCmd = OREF_PROXY_AUTH ? `-x http://${OREF_PROXY_AUTH}` : '';
+    const cmd = `curl -s -L ${proxyCmd} -H "User-Agent: ${CHROME_UA}" -H "Referer: https://www.oref.org.il/" "${url}"`;
+    
+    exec(cmd, { encoding: 'utf-8', timeout: 30000 }, (error, stdout) => {
+      if (error) {
+        console.error('[Oref] Curl error:', redactOrefError(error));
+        return resolve(null);
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function orefFetchAlerts() {
+  if (!OREF_ENABLED) return;
+
+  const rawPayload = await orefCurlFetch(OREF_ALERTS_URL);
+  if (!rawPayload || !rawPayload.trim()) return;
+
+  try {
+    const payload = JSON.parse(stripBom(rawPayload));
+    if (!payload.data || !Array.isArray(payload.data)) return;
+
+    const now = Date.now();
+    const newAlerts = [];
+
+    for (const city of payload.data) {
+      const alertId = `${payload.id}-${city}`;
+      if (!orefHistory.has(alertId)) {
+        const alert = {
+          id: alertId,
+          city,
+          category: payload.category || 1,
+          title: payload.title || 'Rocket Alert',
+          occurredAt: now,
+        };
+        orefHistory.set(alertId, alert);
+        newAlerts.push(alert);
+      }
+    }
+
+    if (newAlerts.length > 0) {
+      console.log(`[Oref] Captured ${newAlerts.length} active alerts`);
+      await archiveEvents('conflict', newAlerts.map(a => ({
+        id: a.id,
+        occurredAt: a.occurredAt,
+        data: a,
+      })));
+      await orefPersistHistory();
+    }
+  } catch (err) {
+    console.error('[Oref] Parse error:', err.message);
+  }
+}
+
+async function orefBootstrapHistoryFromUpstream() {
+  console.log('[Oref] Bootstrapping history from upstream...');
+  const rawPayload = await orefCurlFetch(OREF_HISTORY_URL);
+  if (!rawPayload) return;
+
+  try {
+    const payload = JSON.parse(stripBom(rawPayload));
+    if (!Array.isArray(payload)) return;
+
+    let added = 0;
+    for (const item of payload) {
+      const ts = orefDateToUTC(item.alertDate);
+      const alertId = `hist-${ts}-${item.data}`;
+      if (!orefHistory.has(alertId)) {
+        orefHistory.set(alertId, {
+          id: alertId,
+          city: item.data,
+          category: item.category,
+          title: item.title,
+          occurredAt: ts,
+        });
+        added++;
+      }
+    }
+    console.log(`[Oref] Bootstrapped ${added} historical alerts`);
+    if (added > 0) await orefPersistHistory();
+  } catch (err) {
+    console.error('[Oref] Bootstrap error:', err.message);
+  }
+}
+
+async function orefPersistHistory() {
+  if (!UPSTASH_ENABLED) return;
+  const historyArray = [...orefHistory.values()]
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 1000); // Persist last 1000 alerts
+  
+  await upstashSet(OREF_REDIS_KEY, historyArray, 7 * 24 * 60 * 60); // 7 day TTL
+}
+
+async function orefBootstrapHistoryWithRetry() {
+  // Try Redis first
+  if (UPSTASH_ENABLED) {
+    const cached = await upstashGet(OREF_REDIS_KEY);
+    if (cached && Array.isArray(cached)) {
+      console.log(`[Oref] Restored ${cached.length} alerts from Redis`);
+      for (const alert of cached) orefHistory.set(alert.id, alert);
+    }
+  }
+  
+  // Then Upstream
+  await orefBootstrapHistoryFromUpstream();
+  orefBootstrapDone = true;
+}
+
+async function guardedOrefPoll() {
+  try {
+    if (!orefBootstrapDone) await orefBootstrapHistoryWithRetry();
+    await orefFetchAlerts();
+    // Cleanup old internal history
+    evictMapByTimestamp(orefHistory, 2000, a => a.occurredAt);
+  } catch (err) {
+    console.error('[Oref] Poll error:', err.message);
+  }
+}
+
+function startOrefPollLoop() {
+  if (!OREF_ENABLED) {
+    console.log('[Oref] Disabled (proxy auth missing)');
+    return;
+  }
+  console.log('[Oref] Starting poll loop...');
+  setInterval(guardedOrefPoll, OREF_POLL_INTERVAL_MS);
+  guardedOrefPoll();
 }
 
 function removeVesselFromChokepoints(mmsi) {
@@ -1291,7 +1734,8 @@ function getCorsOrigin(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const corsOrigin = getCorsOrigin(req);
+  try {
+    const corsOrigin = getCorsOrigin(req);
   if (corsOrigin) {
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Vary', 'Origin');
@@ -1590,10 +2034,21 @@ const server = http.createServer(async (req, res) => {
     handleWorldBankRequest(req, res);
   } else if (req.url.startsWith('/polymarket')) {
     handlePolymarketRequest(req, res);
+  } else if (req.url.startsWith('/api/intelligence/v1/get-event-archive')) {
+    handleEventArchiveRequest(req, res);
+  } else if (req.url.startsWith('/api/intelligence/v1/get-cii-history')) {
+    handleCiiHistoryRequest(req, res);
   } else {
     res.writeHead(404);
     res.end();
+    }
+  } catch (err) {
+  console.error('[Relay] Unhandled error:', err.message);
+  if (!res.headersSent) {
+    res.writeHead(500);
+    res.end(JSON.stringify({ error: 'Internal Server Error' }));
   }
+}
 });
 
 function connectUpstream() {
@@ -1699,6 +2154,16 @@ const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
   console.log(`[Relay] WebSocket relay on port ${PORT}`);
+  
+  // Start autonomous regional signal polling loops
+  startOrefPollLoop();
+  startTelegramPollLoop();
+
+  // Start background seed loops
+  if (typeof startEarthquakeSeedLoop === 'function') startEarthquakeSeedLoop();
+  if (typeof startUnrestSeedLoop === 'function') startUnrestSeedLoop();
+  if (typeof startMarketSeedLoop === 'function') startMarketSeedLoop();
+  if (typeof startAviationSeedLoop === 'function') startAviationSeedLoop();
 });
 
 wss.on('connection', (ws, req) => {

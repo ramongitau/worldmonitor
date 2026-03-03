@@ -38,4 +38,14 @@ service IntelligenceService {
   rpc SearchGdeltDocuments(SearchGdeltDocumentsRequest) returns (SearchGdeltDocumentsResponse) {
     option (sebuf.http.config) = {path: "/search-gdelt-documents"};
   }
+
+  // GetCiiHistory retrieves historical CII data for a specific country.
+  rpc GetCiiHistory(GetCiiHistoryRequest) returns (GetCiiHistoryResponse) {
+    option (sebuf.http.config) = {path: "/get-cii-history", method: HTTP_METHOD_GET};
+  }
+
+  // GetEventArchive retrieves historical events matching the query filters.
+  rpc GetEventArchive(GetEventArchiveRequest) returns (GetEventArchiveResponse) {
+    option (sebuf.http.config) = {path: "/get-event-archive", method: HTTP_METHOD_GET};
+  }
 }
