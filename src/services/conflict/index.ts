@@ -6,16 +6,33 @@ import {
   type ListAcledEventsResponse,
   type ListUcdpEventsResponse,
   type GetHumanitarianSummaryResponse,
+  type IranEvent,
+  type ListIranEventsResponse,
 } from '@/generated/client/worldmonitor/conflict/v1/service_client';
 import type { UcdpGeoEvent, UcdpEventType } from '@/types';
 import { createCircuitBreaker } from '@/utils';
 
-// ---- Client + Circuit Breakers (3 separate breakers for 3 RPCs) ----
+// ---- Client + Circuit Breakers (per-RPC; HAPI uses per-country map) ----
 
 const client = new ConflictServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const acledBreaker = createCircuitBreaker<ListAcledEventsResponse>({ name: 'ACLED Conflicts' });
-const ucdpBreaker = createCircuitBreaker<ListUcdpEventsResponse>({ name: 'UCDP Events' });
-const hapiBreaker = createCircuitBreaker<GetHumanitarianSummaryResponse>({ name: 'HDX HAPI' });
+const acledBreaker = createCircuitBreaker<ListAcledEventsResponse>({ name: 'ACLED Conflicts', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+const ucdpBreaker = createCircuitBreaker<ListUcdpEventsResponse>({ name: 'UCDP Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+const hapiBreakers = new Map<string, ReturnType<typeof createCircuitBreaker<GetHumanitarianSummaryResponse>>>();
+function getHapiBreaker(iso2: string) {
+  if (!hapiBreakers.has(iso2)) {
+    hapiBreakers.set(iso2, createCircuitBreaker<GetHumanitarianSummaryResponse>({
+      name: `HDX HAPI:${iso2}`,
+      cacheTtlMs: 10 * 60 * 1000,
+      persistCache: true,
+    }));
+  }
+  return hapiBreakers.get(iso2)!;
+}
+const iranBreaker = createCircuitBreaker<ListIranEventsResponse>({ name: 'Iran Events', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+
+const emptyIranFallback: ListIranEventsResponse = { events: [], scrapedAt: '0' };
+
+export type { IranEvent };
 
 // ---- Exported Types (match legacy shapes exactly) ----
 
@@ -124,14 +141,10 @@ function toUcdpGeoEvent(proto: ProtoUcdpEvent): UcdpGeoEvent {
 
 // ---- Adapter 3: Proto HumanitarianCountrySummary -> legacy HapiConflictSummary ----
 
-const ISO3_TO_ISO2: Record<string, string> = {
-  USA: 'US', RUS: 'RU', CHN: 'CN', UKR: 'UA', IRN: 'IR',
-  ISR: 'IL', TWN: 'TW', PRK: 'KP', SAU: 'SA', TUR: 'TR',
-  POL: 'PL', DEU: 'DE', FRA: 'FR', GBR: 'GB', IND: 'IN',
-  PAK: 'PK', SYR: 'SY', YEM: 'YE', MMR: 'MM', VEN: 'VE',
-};
-
-const ISO2_TO_ISO2_KEYS = Object.values(ISO3_TO_ISO2);
+const HAPI_COUNTRY_CODES = [
+  'US', 'RU', 'CN', 'UA', 'IR', 'IL', 'TW', 'KP', 'SA', 'TR',
+  'PL', 'DE', 'FR', 'GB', 'IN', 'PK', 'SY', 'YE', 'MM', 'VE',
+];
 
 function toHapiSummary(proto: ProtoHumanSummary): HapiConflictSummary {
   // Proto fields now accurately represent HAPI conflict event data (MEDIUM-1 fix)
@@ -235,7 +248,7 @@ const emptyHapiFallback: GetHumanitarianSummaryResponse = { summary: undefined }
 
 export async function fetchConflictEvents(): Promise<ConflictData> {
   const resp = await acledBreaker.execute(async () => {
-    return client.listAcledEvents({ country: '' });
+    return client.listAcledEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
   }, emptyAcledFallback);
 
   const events = resp.events.map(toConflictEvent);
@@ -260,7 +273,7 @@ export async function fetchConflictEvents(): Promise<ConflictData> {
 
 export async function fetchUcdpClassifications(): Promise<Map<string, UcdpConflictStatus>> {
   const resp = await ucdpBreaker.execute(async () => {
-    return client.listUcdpEvents({ country: '' });
+    return client.listUcdpEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
   }, emptyUcdpFallback);
 
   // Don't let the breaker cache empty responses — clear so next call retries
@@ -271,8 +284,8 @@ export async function fetchUcdpClassifications(): Promise<Map<string, UcdpConfli
 
 export async function fetchHapiSummary(): Promise<Map<string, HapiConflictSummary>> {
   const results = await Promise.allSettled(
-    ISO2_TO_ISO2_KEYS.map(async (iso2) => {
-      const resp = await hapiBreaker.execute(async () => {
+    HAPI_COUNTRY_CODES.map(async (iso2) => {
+      const resp = await getHapiBreaker(iso2).execute(async () => {
         return client.getHumanitarianSummary({ countryCode: iso2 });
       }, emptyHapiFallback);
       return { iso2, resp };
@@ -301,7 +314,7 @@ interface UcdpEventsResponse {
 
 export async function fetchUcdpEvents(): Promise<UcdpEventsResponse> {
   const resp = await ucdpBreaker.execute(async () => {
-    return client.listUcdpEvents({ country: '' });
+    return client.listUcdpEvents({ country: '', start: 0, end: 0, pageSize: 0, cursor: '' });
   }, emptyUcdpFallback);
 
   // Don't let the breaker cache empty responses — clear so next call retries
@@ -367,4 +380,14 @@ export function groupByType(events: UcdpGeoEvent[]): Record<string, UcdpGeoEvent
     'non-state': events.filter(e => e.type_of_violence === 'non-state'),
     'one-sided': events.filter(e => e.type_of_violence === 'one-sided'),
   };
+}
+
+export async function fetchIranEvents(): Promise<IranEvent[]> {
+  const resp = await iranBreaker.execute(async () => {
+    // Bypass stale CDN cache from pre-Redis deployment (remove once CDN is clean)
+    const r = await globalThis.fetch('/api/conflict/v1/list-iran-events?_v=9');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json() as Promise<ListIranEventsResponse>;
+  }, emptyIranFallback);
+  return resp.events;
 }

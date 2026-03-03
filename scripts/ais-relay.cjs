@@ -76,6 +76,16 @@ const OREF_ALERTS_URL = 'https://www.oref.org.il/WarningMessages/alert/alerts.js
 const OREF_HISTORY_URL = 'https://www.oref.org.il/WarningMessages/alert/History/AlertsHistory.json';
 const OREF_POLL_INTERVAL_MS = Math.max(30_000, Number(process.env.OREF_POLL_INTERVAL_MS || 300_000));
 const OREF_ENABLED = !!OREF_PROXY_AUTH;
+const OREF_DATA_DIR = process.env.OREF_DATA_DIR || '';
+const OREF_LOCAL_FILE = (() => {
+  if (!OREF_DATA_DIR) return '';
+  try {
+    const stat = require('fs').statSync(OREF_DATA_DIR);
+    if (!stat.isDirectory()) { console.warn(`[Relay] OREF_DATA_DIR is not a directory: ${OREF_DATA_DIR}`); return ''; }
+  } catch { console.warn(`[Relay] OREF_DATA_DIR does not exist: ${OREF_DATA_DIR}`); return ''; }
+  console.log(`[Relay] OREF local persistence: ${OREF_DATA_DIR}`);
+  return path.join(OREF_DATA_DIR, 'oref-history.json');
+})();
 const RELAY_OREF_RATE_LIMIT_MAX = Number.isFinite(Number(process.env.RELAY_OREF_RATE_LIMIT_MAX))
   ? Number(process.env.RELAY_OREF_RATE_LIMIT_MAX) : 600;
 
@@ -163,6 +173,7 @@ function sendPreGzipped(req, res, statusCode, headers, rawBody, gzippedBody) {
   }
 }
 
+>>>>>>> koala73/main
 // AIS aggregate state for snapshot API (server-side fanout)
 const GRID_SIZE = 2;
 const DENSITY_WINDOW = 30 * 60 * 1000; // 30 minutes
@@ -2157,6 +2168,8 @@ server.listen(PORT, () => {
   
   // Start autonomous regional signal polling loops
   startOrefPollLoop();
+  // Start autonomous regional signal polling loops
+  startOrefPollLoop();
   startTelegramPollLoop();
 
   // Start background seed loops
@@ -2164,6 +2177,10 @@ server.listen(PORT, () => {
   if (typeof startUnrestSeedLoop === 'function') startUnrestSeedLoop();
   if (typeof startMarketSeedLoop === 'function') startMarketSeedLoop();
   if (typeof startAviationSeedLoop === 'function') startAviationSeedLoop();
+
+  startUcdpSeedLoop();
+  startMarketDataSeedLoop();
+  startCyberThreatsSeedLoop();
 });
 
 wss.on('connection', (ws, req) => {
