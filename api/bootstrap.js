@@ -7,6 +7,8 @@ const BOOTSTRAP_CACHE_KEYS = {
   earthquakes:      'seismology:earthquakes:v1',
   outages:          'infra:outages:v1',
   serviceStatuses:  'infra:service-statuses:v1',
+  marketQuotes:     'market:stocks-bootstrap:v1',
+  commodityQuotes:  'market:commodities-bootstrap:v1',
   sectors:          'market:sectors:v1',
   etfFlows:         'market:etf-flows:v1',
   macroSignals:     'economic:macro-signals:v1',
@@ -19,7 +21,20 @@ const BOOTSTRAP_CACHE_KEYS = {
   giving:           'giving:summary:v1',
   climateAnomalies: 'climate:anomalies:v1',
   wildfires:        'wildfire:fires:v1',
-  ucdpEvents:       'conflict:ucdp-events:v1',
+};
+
+const SLOW_KEYS = new Set([
+  'bisPolicy', 'bisExchange', 'bisCredit', 'minerals', 'giving',
+  'sectors', 'etfFlows', 'shippingRates', 'wildfires', 'climateAnomalies',
+]);
+const FAST_KEYS = new Set([
+  'earthquakes', 'outages', 'serviceStatuses', 'macroSignals', 'chokepoints',
+  'marketQuotes', 'commodityQuotes',
+]);
+
+const TIER_CACHE = {
+  slow: 'public, s-maxage=3600, stale-while-revalidate=600, stale-if-error=3600',
+  fast: 'public, s-maxage=600, stale-while-revalidate=120, stale-if-error=900',
 };
 
 const NEG_SENTINEL = '__WM_NEG__';
@@ -72,10 +87,17 @@ export default async function handler(req) {
     });
 
   const url = new URL(req.url);
-  const requested = url.searchParams.get('keys')?.split(',').filter(Boolean);
-  const registry = requested
-    ? Object.fromEntries(Object.entries(BOOTSTRAP_CACHE_KEYS).filter(([k]) => requested.includes(k)))
-    : BOOTSTRAP_CACHE_KEYS;
+  const tier = url.searchParams.get('tier');
+  let registry;
+  if (tier === 'slow' || tier === 'fast') {
+    const tierSet = tier === 'slow' ? SLOW_KEYS : FAST_KEYS;
+    registry = Object.fromEntries(Object.entries(BOOTSTRAP_CACHE_KEYS).filter(([k]) => tierSet.has(k)));
+  } else {
+    const requested = url.searchParams.get('keys')?.split(',').filter(Boolean).sort();
+    registry = requested
+      ? Object.fromEntries(Object.entries(BOOTSTRAP_CACHE_KEYS).filter(([k]) => requested.includes(k)))
+      : BOOTSTRAP_CACHE_KEYS;
+  }
 
   const keys = Object.values(registry);
   const names = Object.keys(registry);
@@ -98,12 +120,14 @@ export default async function handler(req) {
     else missing.push(names[i]);
   }
 
+  const cacheControl = (tier && TIER_CACHE[tier]) || 'public, s-maxage=600, stale-while-revalidate=120, stale-if-error=900';
+
   return new Response(JSON.stringify({ data, missing }), {
     status: 200,
     headers: {
       ...cors,
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, s-maxage=600, stale-while-revalidate=120, stale-if-error=900',
+      'Cache-Control': cacheControl,
     },
   });
 }

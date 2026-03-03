@@ -30,7 +30,7 @@ import { BETA_MODE } from '@/config/beta';
 import { MILITARY_BASES } from '@/config';
 import { mlWorker } from '@/services/ml-worker';
 import { isHeadlineMemoryEnabled } from '@/services/ai-flow-settings';
-import { t } from '@/services/i18n';
+import { t, getCurrentLanguage } from '@/services/i18n';
 import { trackCountrySelected, trackCountryBriefOpened } from '@/services/analytics';
 import type { StrategicPosturePanel } from '@/components/StrategicPosturePanel';
 import type { NewsItem } from '@/types';
@@ -290,20 +290,24 @@ export class CountryIntelManager implements AppModule {
       } catch { /* server unreachable */ }
 
       if (briefText) {
-        this.ctx.countryBriefPage!.updateBrief({ brief: briefText, country, code });
+        this.ctx.countryBriefPage?.updateBrief({ brief: briefText, country, code });
       } else {
         let fallbackBrief = '';
         const sumModelId = BETA_MODE ? 'summarization-beta' : 'summarization';
         if (briefHeadlines.length >= 2 && mlWorker.isAvailable && mlWorker.isModelLoaded(sumModelId)) {
           try {
-            const prompt = `Summarize the current situation in ${country} based on these headlines: ${briefHeadlines.slice(0, 8).join('. ')}`;
+            const lang = getCurrentLanguage();
+            const prompt = lang === 'fr'
+              ? `Résumez la situation actuelle en ${country} à partir de ces titres : ${briefHeadlines.slice(0, 8).join('. ')}`
+              : `Summarize the current situation in ${country} based on these headlines: ${briefHeadlines.slice(0, 8).join('. ')}`;
+
             const [summary] = await mlWorker.summarize([prompt], BETA_MODE ? 'summarization-beta' : undefined);
             if (summary && summary.length > 20) fallbackBrief = summary;
           } catch { /* T5 failed */ }
         }
 
         if (fallbackBrief) {
-          this.ctx.countryBriefPage!.updateBrief({ brief: fallbackBrief, country, code, fallback: true });
+          this.ctx.countryBriefPage?.updateBrief({ brief: fallbackBrief, country, code, fallback: true });
         } else {
           const lines: string[] = [];
           if (score) lines.push(t('countryBrief.fallback.instabilityIndex', { score: String(score.score), level: t(`countryBrief.levels.${score.level}`), trend: t(`countryBrief.trends.${score.trend}`) }));
@@ -327,20 +331,21 @@ export class CountryIntelManager implements AppModule {
             briefHeadlines.slice(0, 5).forEach(h => lines.push(`• ${h}`));
           }
           if (lines.length > 0) {
-            this.ctx.countryBriefPage!.updateBrief({ brief: lines.join('\n'), country, code, fallback: true });
+            this.ctx.countryBriefPage?.updateBrief({ brief: lines.join('\n'), country, code, fallback: true });
           } else {
-            this.ctx.countryBriefPage!.updateBrief({ brief: '', country, code, error: 'No AI service available. Configure GROQ_API_KEY in Settings for full briefs.' });
+            this.ctx.countryBriefPage?.updateBrief({ brief: '', country, code, error: 'No AI service available. Configure GROQ_API_KEY in Settings for full briefs.' });
           }
         }
       }
     } catch (err) {
       console.error('[CountryBrief] fetch error:', err);
-      this.ctx.countryBriefPage!.updateBrief({ brief: '', country, code, error: 'Failed to generate brief' });
+      this.ctx.countryBriefPage?.updateBrief({ brief: '', country, code, error: 'Failed to generate brief' });
     }
   }
 
   private async fetchCountryIntelBrief(code: string, contextSnapshot: string): Promise<string> {
-    const params = new URLSearchParams({ country_code: code });
+    const lang = getCurrentLanguage();
+    const params = new URLSearchParams({ country_code: code, lang });
     const trimmed = contextSnapshot.trim();
     if (trimmed.length > 0) {
       params.set('context', trimmed.slice(0, 2200));

@@ -29,7 +29,7 @@ service IntelligenceService {
 
   // ClassifyEvent classifies a real-world event using AI (Groq).
   rpc ClassifyEvent(ClassifyEventRequest) returns (ClassifyEventResponse) {
-    option (sebuf.http.config) = {path: "/classify-event"};
+    option (sebuf.http.config) = {path: "/classify-event", method: HTTP_METHOD_GET};
   }
 
   // GetCountryIntelBrief generates an AI intelligence brief for a country (OpenRouter).
@@ -50,5 +50,10 @@ service IntelligenceService {
   // GetEventArchive retrieves historical events matching the query filters.
   rpc GetEventArchive(GetEventArchiveRequest) returns (GetEventArchiveResponse) {
     option (sebuf.http.config) = {path: "/get-event-archive", method: HTTP_METHOD_GET};
+  }
+
+  // DeductSituation performs AI-powered situational analysis and deduction.
+  rpc DeductSituation(DeductSituationRequest) returns (DeductSituationResponse) {
+    option (sebuf.http.config) = {path: "/deduct-situation"};
   }
 }
