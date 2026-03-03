@@ -65,9 +65,6 @@ const CRITICAL_KEYWORDS: KeywordMap = {
   'nuclear war': 'military',
   'invasion': 'conflict',
   'declaration of war': 'conflict',
-  'declares war': 'conflict',
-  'all-out war': 'conflict',
-  'full-scale war': 'conflict',
   'martial law': 'military',
   'coup': 'military',
   'coup attempt': 'military',
@@ -77,62 +74,26 @@ const CRITICAL_KEYWORDS: KeywordMap = {
   'biological attack': 'terrorism',
   'dirty bomb': 'terrorism',
   'mass casualty': 'conflict',
-  'massive strikes': 'military',
-  'military strikes': 'military',
-  'retaliatory strikes': 'military',
-  'launches strikes': 'military',
-  'launch attacks on iran': 'military',
-  'launch attack on iran': 'military',
-  'attacks on iran': 'military',
-  'strikes on iran': 'military',
-  'strikes iran': 'military',
-  'bombs iran': 'military',
-  'attacks iran': 'military',
-  'attack on iran': 'military',
-  'attack iran': 'military',
-  'attacked iran': 'military',
-  'attack against iran': 'military',
-  'bombing iran': 'military',
-  'bombed iran': 'military',
-  'war with iran': 'conflict',
-  'war on iran': 'conflict',
-  'war against iran': 'conflict',
-  'iran retaliates': 'military',
-  'iran strikes': 'military',
-  'iran launches': 'military',
-  'iran attacks': 'military',
   'pandemic declared': 'health',
   'health emergency': 'health',
   'nato article 5': 'military',
   'evacuation order': 'disaster',
   'meltdown': 'disaster',
   'nuclear meltdown': 'disaster',
-  'major combat operations': 'military',
-  'declared war': 'conflict',
 };
 
 const HIGH_KEYWORDS: KeywordMap = {
   'war': 'conflict',
   'armed conflict': 'conflict',
   'airstrike': 'conflict',
-  'airstrikes': 'conflict',
   'air strike': 'conflict',
-  'air strikes': 'conflict',
   'drone strike': 'conflict',
-  'drone strikes': 'conflict',
-  'strikes': 'conflict',
   'missile': 'military',
   'missile launch': 'military',
-  'missiles fired': 'military',
   'troops deployed': 'military',
   'military escalation': 'military',
-  'military operation': 'military',
-  'ground offensive': 'military',
   'bombing': 'conflict',
-  'bombardment': 'conflict',
-  'shelling': 'conflict',
   'casualties': 'conflict',
-  'killed in': 'conflict',
   'hostage': 'terrorism',
   'terrorist': 'terrorism',
   'terror attack': 'terrorism',
@@ -146,30 +107,6 @@ const HIGH_KEYWORDS: KeywordMap = {
   'tsunami': 'disaster',
   'hurricane': 'disaster',
   'typhoon': 'disaster',
-  'strike on': 'conflict',
-  'strikes on': 'conflict',
-  'attack on': 'conflict',
-  'attack against': 'conflict',
-  'attacks on': 'conflict',
-  'launched attack': 'conflict',
-  'launched attacks': 'conflict',
-  'launches attack': 'conflict',
-  'launches attacks': 'conflict',
-  'explosions': 'conflict',
-  'military operations': 'military',
-  'combat operations': 'military',
-  'retaliatory strike': 'military',
-  'retaliatory attack': 'military',
-  'retaliatory attacks': 'military',
-  'preemptive strike': 'military',
-  'preemptive attack': 'military',
-  'preventive attack': 'military',
-  'preventative attack': 'military',
-  'military offensive': 'military',
-  'ballistic missile': 'military',
-  'cruise missile': 'military',
-  'air defense intercepted': 'military',
-  'forces struck': 'conflict',
 };
 
 const MEDIUM_KEYWORDS: KeywordMap = {
@@ -280,20 +217,11 @@ const EXCLUSIONS = [
   'recipe', 'cooking', 'shopping', 'fashion', 'celebrity', 'movie',
   'tv show', 'sports', 'game', 'concert', 'festival', 'wedding',
   'vacation', 'travel tips', 'life hack', 'self-care', 'wellness',
-  'strikes deal', 'strikes agreement', 'strikes partnership',
 ];
 
 const SHORT_KEYWORDS = new Set([
   'war', 'coup', 'ban', 'vote', 'riot', 'riots', 'hack', 'talks', 'ipo', 'gdp',
-  'virus', 'disease', 'flood', 'strikes',
-]);
-
-const TRAILING_BOUNDARY_KEYWORDS = new Set([
-  'attack iran', 'attacked iran', 'attack on iran', 'attack against iran',
-  'attacks on iran', 'launch attacks on iran', 'launch attack on iran',
-  'bombing iran', 'bombed iran', 'strikes iran', 'attacks iran',
-  'bombs iran', 'war on iran', 'war with iran', 'war against iran',
-  'iran retaliates', 'iran strikes', 'iran launches', 'iran attacks',
+  'virus', 'disease', 'flood',
 ]);
 
 const keywordRegexCache = new Map<string, RegExp>();
@@ -301,14 +229,9 @@ const keywordRegexCache = new Map<string, RegExp>();
 function getKeywordRegex(kw: string): RegExp {
   let re = keywordRegexCache.get(kw);
   if (!re) {
-    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (SHORT_KEYWORDS.has(kw)) {
-      re = new RegExp(`\\b${escaped}\\b`);
-    } else if (TRAILING_BOUNDARY_KEYWORDS.has(kw)) {
-      re = new RegExp(`${escaped}(?![\\w-])`);
-    } else {
-      re = new RegExp(escaped);
-    }
+    re = SHORT_KEYWORDS.has(kw)
+      ? new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+      : new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     keywordRegexCache.set(kw, re);
   }
   return re;
@@ -326,16 +249,6 @@ function matchKeywords(
   return null;
 }
 
-// Compound escalation: HIGH military/conflict + critical geopolitical target → CRITICAL
-// Handles headlines like "strikes by US and Israel on Iran" where words aren't adjacent
-const ESCALATION_ACTIONS = /\b(attack|attacks|attacked|strike|strikes|struck|bomb|bombs|bombed|bombing|shell|shelled|shelling|missile|missiles|intercept|intercepted|retaliates|retaliating|retaliation|killed|casualties|offensive|invaded|invades)\b/;
-const ESCALATION_TARGETS = /\b(iran|tehran|isfahan|tabriz|russia|moscow|china|beijing|taiwan|taipei|north korea|pyongyang|nato|us base|us forces|american forces|us military)\b/;
-
-function shouldEscalateToCritical(lower: string, matchCat: EventCategory): boolean {
-  if (matchCat !== 'conflict' && matchCat !== 'military') return false;
-  return ESCALATION_ACTIONS.test(lower) && ESCALATION_TARGETS.test(lower);
-}
-
 export function classifyByKeyword(title: string, variant = 'full'): ThreatClassification {
   const lower = title.toLowerCase();
 
@@ -350,13 +263,7 @@ export function classifyByKeyword(title: string, variant = 'full'): ThreatClassi
   if (match) return { level: 'critical', category: match.category, confidence: 0.9, source: 'keyword' };
 
   match = matchKeywords(lower, HIGH_KEYWORDS);
-  if (match) {
-    // Compound escalation: military action + critical geopolitical target → CRITICAL
-    if (shouldEscalateToCritical(lower, match.category)) {
-      return { level: 'critical', category: match.category, confidence: 0.85, source: 'keyword' };
-    }
-    return { level: 'high', category: match.category, confidence: 0.8, source: 'keyword' };
-  }
+  if (match) return { level: 'high', category: match.category, confidence: 0.8, source: 'keyword' };
 
   if (isTech) {
     match = matchKeywords(lower, TECH_HIGH_KEYWORDS);
@@ -382,7 +289,7 @@ export function classifyByKeyword(title: string, variant = 'full'): ThreatClassi
   return { level: 'info', category: 'general', confidence: 0.3, source: 'keyword' };
 }
 
-// Batched AI classification — collects headlines then fires parallel classifyEvent RPCs
+// Batched AI classification — collects headlines then fires parallel sebuf RPCs
 import {
   IntelligenceServiceClient,
   ApiError,
@@ -409,93 +316,44 @@ function toThreat(resp: ClassifyEventResponse): ThreatClassification | null {
   };
 }
 
-type BatchJob = {
-  title: string;
-  variant: string;
-  resolve: (v: ThreatClassification | null) => void;
-  attempts?: number;
-};
-
 const BATCH_SIZE = 20;
 const BATCH_DELAY_MS = 500;
-const STAGGER_BASE_MS = 2100;
-const STAGGER_JITTER_MS = 200;
-const MIN_GAP_MS = 2000;
-const MAX_RETRIES = 2;
-const MAX_QUEUE_LENGTH = 100;
 let batchPaused = false;
-let batchInFlight = false;
 let batchTimer: ReturnType<typeof setTimeout> | null = null;
-let lastRequestAt = 0;
-const batchQueue: BatchJob[] = [];
-
-async function waitForGap(): Promise<void> {
-  const elapsed = Date.now() - lastRequestAt;
-  if (elapsed < MIN_GAP_MS) {
-    await new Promise<void>(r => setTimeout(r, MIN_GAP_MS - elapsed));
-  }
-  const jitter = Math.floor(Math.random() * STAGGER_JITTER_MS * 2) - STAGGER_JITTER_MS;
-  const extra = Math.max(0, STAGGER_BASE_MS - MIN_GAP_MS + jitter);
-  if (extra > 0) await new Promise<void>(r => setTimeout(r, extra));
-  lastRequestAt = Date.now();
-}
+const batchQueue: Array<{ title: string; variant: string; resolve: (v: ThreatClassification | null) => void }> = [];
 
 function flushBatch(): void {
+  if (batchPaused || batchQueue.length === 0) return;
   batchTimer = null;
-  if (batchPaused || batchInFlight || batchQueue.length === 0) return;
-  batchInFlight = true;
 
   const batch = batchQueue.splice(0, BATCH_SIZE);
-  if (batch.length === 0) { batchInFlight = false; return; }
+  if (batch.length === 0) return;
 
-  (async () => {
-    try {
-      for (let i = 0; i < batch.length; i++) {
-        const job = batch[i]!;
-        if (batchPaused) { job.resolve(null); continue; }
-
-        await waitForGap();
-
-        try {
-          const resp = await classifyClient.classifyEvent({
-            title: job.title, description: '', source: '', country: '',
-          });
-          job.resolve(toThreat(resp));
-        } catch (err) {
-          if (err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 429 || err.statusCode >= 500)) {
-            batchPaused = true;
-            const delay = err.statusCode === 401 ? 120_000 : err.statusCode === 429 ? 60_000 : 30_000;
-            console.warn(`[Classify] ${err.statusCode} — pausing AI classification for ${delay / 1000}s`);
-            const remaining = batch.slice(i + 1);
-            // Failed job: increment attempts, requeue if under limit
-            if ((job.attempts ?? 0) < MAX_RETRIES) {
-              job.attempts = (job.attempts ?? 0) + 1;
-              batchQueue.unshift(job);
-            } else {
-              job.resolve(null);
-            }
-            // Remaining jobs never hit the API — requeue without burning attempts
-            for (let j = remaining.length - 1; j >= 0; j--) {
-              batchQueue.unshift(remaining[j]!);
-            }
-            batchInFlight = false;
-            setTimeout(() => { batchPaused = false; scheduleBatch(); }, delay);
-            return;
-          }
-          job.resolve(null);
+  // Fire parallel classifyEvent RPCs for each headline
+  const promises = batch.map((job) =>
+    classifyClient
+      .classifyEvent({ title: job.title, description: '', source: '', country: '' })
+      .then((resp) => {
+        job.resolve(toThreat(resp));
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && (err.statusCode === 429 || err.statusCode >= 500)) {
+          batchPaused = true;
+          const delay = err.statusCode === 429 ? 60_000 : 30_000;
+          console.warn(`[Classify] ${err.statusCode} — pausing AI classification for ${delay / 1000}s`);
+          // Drain remaining queue
+          while (batchQueue.length > 0) batchQueue.shift()!.resolve(null);
+          setTimeout(() => { batchPaused = false; scheduleBatch(); }, delay);
         }
-      }
-    } finally {
-      if (batchInFlight) {
-        batchInFlight = false;
-        scheduleBatch();
-      }
-    }
-  })();
+        job.resolve(null);
+      }),
+  );
+
+  Promise.allSettled(promises).then(() => scheduleBatch());
 }
 
 function scheduleBatch(): void {
-  if (batchTimer || batchPaused || batchInFlight || batchQueue.length === 0) return;
+  if (batchTimer || batchPaused || batchQueue.length === 0) return;
   if (batchQueue.length >= BATCH_SIZE) {
     flushBatch();
   } else {
@@ -508,11 +366,6 @@ export function classifyWithAI(
   variant: string
 ): Promise<ThreatClassification | null> {
   return new Promise((resolve) => {
-    if (batchQueue.length >= MAX_QUEUE_LENGTH) {
-      console.warn(`[Classify] Queue full (${MAX_QUEUE_LENGTH}), dropping classification for: ${title.slice(0, 60)}`);
-      resolve(null);
-      return;
-    }
     batchQueue.push({ title, variant, resolve });
     scheduleBatch();
   });

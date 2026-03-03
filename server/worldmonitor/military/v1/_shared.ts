@@ -1,6 +1,10 @@
+declare const process: { env: Record<string, string | undefined> };
+
 import type {
   AircraftDetails,
 } from '../../../../src/generated/server/worldmonitor/military/v1/service_server';
+
+
 
 // ========================================================================
 // Military identification
@@ -24,19 +28,16 @@ export const MILITARY_PREFIXES = [
   'COBRA', 'PYTHON', 'RAPTOR', 'EAGLE', 'HAWK', 'TALON',
   'BOXER', 'OMNI', 'TOPCAT', 'SKULL', 'REAPER', 'HUNTER',
   'ARMY', 'NAVY', 'USAF', 'USMC', 'USCG',
-  'CNV', 'EXEC',
+  'AE', 'CNV', 'PAT', 'SAM', 'EXEC',
+  'OPS', 'CTF', 'TF',
   'NATO', 'GAF', 'RRF', 'RAF', 'FAF', 'IAF', 'RNLAF', 'BAF', 'DAF', 'HAF', 'PAF',
   'SWORD', 'LANCE', 'ARROW', 'SPARTAN',
   'RSAF', 'EMIRI', 'UAEAF', 'KAF', 'QAF', 'BAHAF', 'OMAAF',
-  'IRIAF', 'IRGC',
-  'TUAF',
-  'RSD', 'RFF', 'VKS',
+  'IRIAF', 'IRG', 'IRGC',
+  'TAF', 'TUAF',
+  'RSD', 'RF', 'RFF', 'VKS',
   'CHN', 'PLAAF', 'PLA',
 ];
-
-// Short prefixes that only match when followed by digits (not letters)
-// e.g. AE1234 = military, AEE123 = Aegean Airlines
-const SHORT_MILITARY_PREFIXES = ['AE', 'RF', 'TF', 'PAT', 'SAM', 'OPS', 'CTF', 'IRG', 'TAF'];
 
 export const AIRLINE_CODES = new Set([
   'SVA', 'QTR', 'THY', 'UAE', 'ETD', 'GFA', 'MEA', 'RJA', 'KAC', 'ELY',
@@ -57,9 +58,7 @@ export function isMilitaryCallsign(callsign: string | null | undefined): boolean
   for (const prefix of MILITARY_PREFIXES) {
     if (cs.startsWith(prefix)) return true;
   }
-  for (const prefix of SHORT_MILITARY_PREFIXES) {
-    if (cs.startsWith(prefix) && cs.length > prefix.length && /\d/.test(cs.charAt(prefix.length))) return true;
-  }
+  if (/^[A-Z]{4,}\d{1,3}$/.test(cs)) return true;
   if (/^[A-Z]{3}\d{1,2}$/.test(cs)) {
     const prefix = cs.slice(0, 3);
     if (!AIRLINE_CODES.has(prefix)) return true;
@@ -143,3 +142,4 @@ export function mapWingbitsDetails(icao24: string, data: Record<string, unknown>
     categoryDescription: String(data.categoryDescription ?? ''),
   };
 }
+

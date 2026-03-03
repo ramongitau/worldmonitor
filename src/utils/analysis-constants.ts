@@ -213,7 +213,7 @@ export function findRelatedTopics(prediction: string): string[] {
 }
 
 export function generateSignalId(): string {
-  return `sig-${crypto.randomUUID()}`;
+  return `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function generateDedupeKey(type: string, identifier: string, value: number): string {

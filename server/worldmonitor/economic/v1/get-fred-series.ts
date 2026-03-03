@@ -2,6 +2,9 @@
  * RPC: getFredSeries -- Federal Reserve Economic Data (FRED) time series
  * Port from api/fred-data.js
  */
+
+declare const process: { env: Record<string, string | undefined> };
+
 import type {
   ServerContext,
   GetFredSeriesRequest,
@@ -10,7 +13,7 @@ import type {
   FredObservation,
 } from '../../../../src/generated/server/worldmonitor/economic/v1/service_server';
 
-import { cachedFetchJson } from '../../../_shared/redis';
+import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 
 const FRED_API_BASE = 'https://api.stlouisfed.org/fred';
 const REDIS_CACHE_KEY = 'economic:fred:v1';
@@ -92,14 +95,17 @@ export async function getFredSeries(
   _ctx: ServerContext,
   req: GetFredSeriesRequest,
 ): Promise<GetFredSeriesResponse> {
-  if (!req.seriesId) return { series: undefined };
   try {
     const cacheKey = `${REDIS_CACHE_KEY}:${req.seriesId}:${req.limit || 0}`;
-    const result = await cachedFetchJson<GetFredSeriesResponse>(cacheKey, REDIS_CACHE_TTL, async () => {
-      const series = await fetchFredSeries(req);
-      return series ? { series } : null;
-    });
-    return result || { series: undefined };
+    const cached = (await getCachedJson(cacheKey)) as GetFredSeriesResponse | null;
+    if (cached?.series) return cached;
+
+    const series = await fetchFredSeries(req);
+    const result: GetFredSeriesResponse = { series };
+    if (series) {
+      setCachedJson(cacheKey, result, REDIS_CACHE_TTL).catch(() => {});
+    }
+    return result;
   } catch {
     return { series: undefined };
   }

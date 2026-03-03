@@ -2,13 +2,12 @@ syntax = "proto3";
 
 package worldmonitor.military.v1;
 
-import "sebuf/http/annotations.proto";
 import "worldmonitor/military/v1/military_vessel.proto";
 
 // GetTheaterPostureRequest specifies the theater to assess.
 message GetTheaterPostureRequest {
   // Theater name (e.g., "indo-pacific", "european", "middle-east"). Empty for all theaters.
-  string theater = 1 [(sebuf.http.query) = { name: "theater" }];
+  string theater = 1;
 }
 
 // GetTheaterPostureResponse contains theater posture assessments.

@@ -1,15 +1,13 @@
 {
-  "name": "worldmonitor-railway-relay",
-  "version": "1.1.0",
-  "description": "Railway relay: AIS/OpenSky + RSS proxy + Telegram OSINT poller",
+  "name": "ais-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay for aisstream.io vessel tracking",
   "main": "ais-relay.cjs",
   "scripts": {
-    "start": "node ais-relay.cjs",
-    "telegram:session": "node telegram/session-auth.mjs"
+    "start": "node ais-relay.cjs"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "telegram": "^2.22.2"
+    "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=18"

@@ -2,10 +2,17 @@
 // source: worldmonitor/maritime/v1/service.proto
 
 export interface GetVesselSnapshotRequest {
-  neLat: number;
-  neLon: number;
-  swLat: number;
-  swLon: number;
+  boundingBox?: BoundingBox;
+}
+
+export interface BoundingBox {
+  northEast?: GeoCoordinates;
+  southWest?: GeoCoordinates;
+}
+
+export interface GeoCoordinates {
+  latitude: number;
+  longitude: number;
 }
 
 export interface GetVesselSnapshotResponse {
@@ -28,11 +35,6 @@ export interface AisDensityZone {
   note: string;
 }
 
-export interface GeoCoordinates {
-  latitude: number;
-  longitude: number;
-}
-
 export interface AisDisruption {
   id: string;
   name: string;
@@ -48,9 +50,13 @@ export interface AisDisruption {
 }
 
 export interface ListNavigationalWarningsRequest {
+  pagination?: PaginationRequest;
+  area: string;
+}
+
+export interface PaginationRequest {
   pageSize: number;
   cursor: string;
-  area: string;
 }
 
 export interface ListNavigationalWarningsResponse {
@@ -128,12 +134,7 @@ export class MaritimeServiceClient {
 
   async getVesselSnapshot(req: GetVesselSnapshotRequest, options?: MaritimeServiceCallOptions): Promise<GetVesselSnapshotResponse> {
     let path = "/api/maritime/v1/get-vessel-snapshot";
-    const params = new URLSearchParams();
-    if (req.neLat != null && req.neLat !== 0) params.set("ne_lat", String(req.neLat));
-    if (req.neLon != null && req.neLon !== 0) params.set("ne_lon", String(req.neLon));
-    if (req.swLat != null && req.swLat !== 0) params.set("sw_lat", String(req.swLat));
-    if (req.swLon != null && req.swLon !== 0) params.set("sw_lon", String(req.swLon));
-    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+    const url = this.baseURL + path;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -142,8 +143,9 @@ export class MaritimeServiceClient {
     };
 
     const resp = await this.fetchFn(url, {
-      method: "GET",
+      method: "POST",
       headers,
+      body: JSON.stringify(req),
       signal: options?.signal,
     });
 
@@ -156,11 +158,7 @@ export class MaritimeServiceClient {
 
   async listNavigationalWarnings(req: ListNavigationalWarningsRequest, options?: MaritimeServiceCallOptions): Promise<ListNavigationalWarningsResponse> {
     let path = "/api/maritime/v1/list-navigational-warnings";
-    const params = new URLSearchParams();
-    if (req.pageSize != null && req.pageSize !== 0) params.set("page_size", String(req.pageSize));
-    if (req.cursor != null && req.cursor !== "") params.set("cursor", String(req.cursor));
-    if (req.area != null && req.area !== "") params.set("area", String(req.area));
-    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+    const url = this.baseURL + path;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -169,8 +167,9 @@ export class MaritimeServiceClient {
     };
 
     const resp = await this.fetchFn(url, {
-      method: "GET",
+      method: "POST",
       headers,
+      body: JSON.stringify(req),
       signal: options?.signal,
     });
 

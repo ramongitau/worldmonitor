@@ -324,20 +324,20 @@ test.describe('desktop runtime routing guardrails', () => {
     await page.goto('/tests/runtime-harness.html');
 
     const result = await page.evaluate(async () => {
-      const { DesktopUpdater } = await import('/src/app/desktop-updater.ts');
+      const { App } = await import('/src/App.ts');
       const globalWindow = window as unknown as {
         __TAURI__?: { core?: { invoke?: (command: string) => Promise<unknown> } };
       };
       const previousTauri = globalWindow.__TAURI__;
       const releaseUrl = 'https://github.com/koala73/worldmonitor/releases/latest';
 
-      const updaterProto = DesktopUpdater.prototype as unknown as {
+      const appProto = App.prototype as unknown as {
         resolveUpdateDownloadUrl: (releaseUrl: string) => Promise<string>;
         mapDesktopDownloadPlatform: (os: string, arch: string) => string | null;
         getDesktopBuildVariant: () => 'full' | 'tech' | 'finance';
       };
       const fakeApp = {
-        mapDesktopDownloadPlatform: updaterProto.mapDesktopDownloadPlatform,
+        mapDesktopDownloadPlatform: appProto.mapDesktopDownloadPlatform,
         getDesktopBuildVariant: () => 'full' as const,
       };
 
@@ -350,21 +350,21 @@ test.describe('desktop runtime routing guardrails', () => {
             },
           },
         };
-        const macArm = await updaterProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
+        const macArm = await appProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
 
         globalWindow.__TAURI__ = {
           core: {
             invoke: async () => ({ os: 'windows', arch: 'amd64' }),
           },
         };
-        const windowsX64 = await updaterProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
+        const windowsX64 = await appProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
 
         globalWindow.__TAURI__ = {
           core: {
             invoke: async () => ({ os: 'linux', arch: 'x86_64' }),
           },
         };
-        const linuxFallback = await updaterProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
+        const linuxFallback = await appProto.resolveUpdateDownloadUrl.call(fakeApp, releaseUrl);
 
         return { macArm, windowsX64, linuxFallback };
       } finally {
@@ -513,7 +513,7 @@ test.describe('desktop runtime routing guardrails', () => {
     await page.goto('/tests/runtime-harness.html');
 
     const result = await page.evaluate(async () => {
-      const { DataLoaderManager } = await import('/src/app/data-loader.ts');
+      const { App } = await import('/src/App.ts');
       const originalFetch = window.fetch.bind(window);
 
       const calls: string[] = [];
@@ -594,37 +594,33 @@ test.describe('desktop runtime routing guardrails', () => {
       }) as typeof window.fetch;
 
       const fakeApp = {
-        ctx: {
-          latestMarkets: [] as Array<unknown>,
-          panels: {
-            markets: {
-              renderMarkets: (data: Array<unknown>) => marketRenders.push(data.length),
-              showConfigError: (message: string) => marketConfigErrors.push(message),
-            },
-            heatmap: {
-              renderHeatmap: (data: Array<unknown>) => heatmapRenders.push(data.length),
-              showConfigError: (message: string) => heatmapConfigErrors.push(message),
-            },
-            commodities: {
-              renderCommodities: (data: Array<unknown>) => commoditiesRenders.push(data.length),
-              showConfigError: (message: string) => commoditiesConfigErrors.push(message),
-              showRetrying: () => {},
-            },
-            crypto: {
-              renderCrypto: (data: Array<unknown>) => cryptoRenders.push(data.length),
-              showRetrying: () => {},
-            },
+        latestMarkets: [] as Array<unknown>,
+        panels: {
+          markets: {
+            renderMarkets: (data: Array<unknown>) => marketRenders.push(data.length),
+            showConfigError: (message: string) => marketConfigErrors.push(message),
           },
-          statusPanel: {
-            updateApi: (name: string, payload: { status?: string }) => {
-              apiStatuses.push({ name, status: payload.status ?? '' });
-            },
+          heatmap: {
+            renderHeatmap: (data: Array<unknown>) => heatmapRenders.push(data.length),
+            showConfigError: (message: string) => heatmapConfigErrors.push(message),
+          },
+          commodities: {
+            renderCommodities: (data: Array<unknown>) => commoditiesRenders.push(data.length),
+            showConfigError: (message: string) => commoditiesConfigErrors.push(message),
+          },
+          crypto: {
+            renderCrypto: (data: Array<unknown>) => cryptoRenders.push(data.length),
+          },
+        },
+        statusPanel: {
+          updateApi: (name: string, payload: { status?: string }) => {
+            apiStatuses.push({ name, status: payload.status ?? '' });
           },
         },
       };
 
       try {
-        await (DataLoaderManager.prototype as unknown as { loadMarkets: () => Promise<void> })
+        await (App.prototype as unknown as { loadMarkets: (thisArg: unknown) => Promise<void> })
           .loadMarkets.call(fakeApp);
 
         // Commodities now go through listMarketQuotes (batch), not individual Yahoo calls
@@ -641,7 +637,7 @@ test.describe('desktop runtime routing guardrails', () => {
           commoditiesConfigErrors,
           cryptoRenders,
           apiStatuses,
-          latestMarketsCount: fakeApp.ctx.latestMarkets.length,
+          latestMarketsCount: fakeApp.latestMarkets.length,
           marketQuoteCalls: marketQuoteCalls.length,
         };
       } finally {

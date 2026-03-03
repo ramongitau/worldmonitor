@@ -172,7 +172,6 @@ export const DEFAULT_PANELS: Record<string, PanelConfig> = {
 
 // Finance-focused map layers
 export const DEFAULT_MAP_LAYERS: MapLayers = {
-  gpsJamming: false,
   conflicts: false,
   bases: false,
   cables: true,
@@ -210,20 +209,10 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   centralBanks: true,
   commodityHubs: false,
   gulfInvestments: false,
-  // Happy variant layers
-  positiveEvents: false,
-  kindness: false,
-  happiness: false,
-  speciesRecovery: false,
-  renewableInstallations: false,
-  tradeRoutes: true,
-  iranAttacks: false,
-  dayNight: false,
 };
 
 // Mobile defaults for finance variant
 export const MOBILE_DEFAULT_MAP_LAYERS: MapLayers = {
-  gpsJamming: false,
   conflicts: false,
   bases: false,
   cables: false,
@@ -261,15 +250,6 @@ export const MOBILE_DEFAULT_MAP_LAYERS: MapLayers = {
   centralBanks: true,
   commodityHubs: false,
   gulfInvestments: false,
-  // Happy variant layers
-  positiveEvents: false,
-  kindness: false,
-  happiness: false,
-  speciesRecovery: false,
-  renewableInstallations: false,
-  tradeRoutes: false,
-  iranAttacks: false,
-  dayNight: false,
 };
 
 export const VARIANT_CONFIG: VariantConfig = {

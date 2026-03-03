@@ -1,10 +1,8 @@
 import { getLocationName, type GeoConvergenceAlert } from './geo-convergence';
 import type { CountryScore } from './country-instability';
 import type { CascadeResult, CascadeImpactLevel } from '@/types';
-import { calculateCII, isInLearningMode } from './country-instability';
-import { getCountryNameByCode } from './country-geometry';
+import { calculateCII, TIER1_COUNTRIES, isInLearningMode } from './country-instability';
 import { t } from '@/services/i18n';
-import type { TheaterPostureSummary } from '@/services/military-surge';
 
 export type AlertPriority = 'critical' | 'high' | 'medium' | 'low';
 export type AlertType = 'convergence' | 'cii_spike' | 'cascade' | 'composite';
@@ -235,7 +233,7 @@ function getHigherPriority(a: AlertPriority, b: AlertPriority): AlertPriority {
 }
 
 function getCountryDisplayName(code: string): string {
-  return getCountryNameByCode(code) || code;
+  return TIER1_COUNTRIES[code] || code;
 }
 
 function generateCompositeTitle(a: UnifiedAlert, b: UnifiedAlert): string {
@@ -323,7 +321,6 @@ function addAndMergeAlert(alert: UnifiedAlert): UnifiedAlert {
 
   alerts.unshift(alert);
   if (alerts.length > 50) alerts.pop();
-  document.dispatchEvent(new CustomEvent('wm:intelligence-updated'));
   return alert;
 }
 
@@ -350,7 +347,7 @@ function getCountriesNearLocation(lat: number, lon: number): string[] {
     countries.push(...regionCountries.americas);
   }
 
-  return countries;
+  return countries.filter(c => TIER1_COUNTRIES[c]);
 }
 
 export function checkCIIChanges(): UnifiedAlert[] {
@@ -415,10 +412,7 @@ function updateAlerts(convergenceAlerts: GeoConvergenceAlert[]): void {
 }
 
 export function calculateStrategicRiskOverview(
-  convergenceAlerts: GeoConvergenceAlert[],
-  theaterPostures?: TheaterPostureSummary[],
-  breakingAlertScore?: number,
-  theaterStaleFactor?: number
+  convergenceAlerts: GeoConvergenceAlert[]
 ): StrategicRiskOverview {
   const ciiScores = calculateCII();
 
@@ -435,28 +429,12 @@ export function calculateStrategicRiskOverview(
   const convergenceScore = Math.min(100, convergenceAlerts.length * 25);
   const infraScore = Math.min(100, countInfrastructureIncidents() * 25);
 
-  // Theater posture boost from raw asset counts (avoids CII double-count)
-  let theaterBoost = 0;
-  if (theaterPostures && theaterPostures.length > 0) {
-    for (const p of theaterPostures) {
-      if (p.totalAircraft + p.totalVessels === 0) continue;
-      const assetScore = Math.min(10, Math.floor((p.totalAircraft + p.totalVessels) / 5));
-      theaterBoost += p.strikeCapable ? assetScore + 5 : assetScore;
-    }
-    theaterBoost = Math.min(25, theaterBoost);
-  }
-  theaterBoost = Math.round(theaterBoost * (theaterStaleFactor ?? 1));
-
-  // Breaking news severity boost (pre-computed by panel)
-  const breakingBoost = Math.min(15, breakingAlertScore ?? 0);
-
-  const composite = Math.min(100, Math.round(
+  // CII score is already 0-100 from calculateCIIRiskScore
+  const composite = Math.round(
     convergenceScore * convergenceWeight +
     ciiRiskScore * ciiWeight +
-    infraScore * infraWeight +
-    theaterBoost +
-    breakingBoost
-  ));
+    infraScore * infraWeight
+  );
 
   const trend = determineTrend(composite);
 
@@ -515,8 +493,8 @@ function determineTrend(current: number): 'escalating' | 'stable' | 'de-escalati
   }
   const diff = current - previousCompositeScore;
   previousCompositeScore = current;
-  if (diff >= 3) return 'escalating';
-  if (diff <= -3) return 'de-escalating';
+  if (diff >= 5) return 'escalating';
+  if (diff <= -5) return 'de-escalating';
   return 'stable';
 }
 

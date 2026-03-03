@@ -9,7 +9,6 @@
  *   - ListStablecoinMarkets (CoinGecko stablecoin peg health)
  *   - ListEtfFlows          (Yahoo Finance BTC spot ETF flow estimates)
  *   - GetCountryStockIndex  (Yahoo Finance national stock indices)
- *   - ListGulfQuotes        (Yahoo Finance GCC indices, currencies, oil)
  */
 
 import type { MarketServiceHandler } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
@@ -20,7 +19,6 @@ import { getSectorSummary } from './get-sector-summary';
 import { listStablecoinMarkets } from './list-stablecoin-markets';
 import { listEtfFlows } from './list-etf-flows';
 import { getCountryStockIndex } from './get-country-stock-index';
-import { listGulfQuotes } from './list-gulf-quotes';
 
 export const marketHandler: MarketServiceHandler = {
   listMarketQuotes,
@@ -30,5 +28,4 @@ export const marketHandler: MarketServiceHandler = {
   listStablecoinMarkets,
   listEtfFlows,
   getCountryStockIndex,
-  listGulfQuotes,
 };

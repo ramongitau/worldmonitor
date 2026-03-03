@@ -102,9 +102,8 @@ export const FEEDS: Record<string, Feed[]> = {
     { name: 'The Hacker News', url: rss('https://feeds.feedburner.com/TheHackersNews') },
     { name: 'Dark Reading', url: rss('https://www.darkreading.com/rss.xml') },
     { name: 'Schneier', url: rss('https://www.schneier.com/feed/') },
-    { name: 'CISA Advisories', url: rss('https://www.cisa.gov/cybersecurity-advisories/all.xml') },
+    { name: 'CISA Advisories', url: 'https://rss.worldmonitor.app/api/rss-proxy?url=' + encodeURIComponent('https://www.cisa.gov/cybersecurity-advisories/all.xml') },
     { name: 'Cyber Incidents', url: rss('https://news.google.com/rss/search?q=cyber+attack+OR+data+breach+OR+ransomware+OR+hacking+when:3d&hl=en-US&gl=US&ceid=US:en') },
-    { name: 'Ransomware.live', url: rss('https://www.ransomware.live/rss.xml') },
   ],
 
   // Policy & Regulation
@@ -160,17 +159,6 @@ export const FEEDS: Record<string, Feed[]> = {
     { name: 'New Unicorns', url: rss('https://news.google.com/rss/search?q=("becomes+unicorn"+OR+"joins+unicorn"+OR+"reaches+unicorn"+OR+"achieved+unicorn")+when:14d&hl=en-US&gl=US&ceid=US:en') },
   ],
 
-  // IPO & SPAC
-  ipo: [
-    { name: 'IPO News', url: rss('https://news.google.com/rss/search?q=(IPO+OR+"initial+public+offering"+OR+SPAC)+tech+when:7d&hl=en-US&gl=US&ceid=US:en') },
-    { name: 'Tech IPO News', url: rss('https://news.google.com/rss/search?q=tech+IPO+OR+"tech+company"+IPO+when:7d&hl=en-US&gl=US&ceid=US:en') },
-  ],
-
-  // Product Hunt
-  producthunt: [
-    { name: 'Product Hunt', url: rss('https://www.producthunt.com/feed') },
-  ],
-
   // Accelerators & Demo Days
   accelerators: [
     { name: 'YC News', url: rss('https://news.ycombinator.com/rss') },
@@ -213,7 +201,6 @@ export const DEFAULT_PANELS: Record<string, PanelConfig> = {
 // Tech-focused map layers (subset)
 export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Keep only relevant layers, set others to false
-  gpsJamming: false,
   conflicts: false,
   bases: false,
   cables: true,
@@ -251,20 +238,10 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   centralBanks: false,
   commodityHubs: false,
   gulfInvestments: false,
-  // Happy variant layers
-  positiveEvents: false,
-  kindness: false,
-  happiness: false,
-  speciesRecovery: false,
-  renewableInstallations: false,
-  tradeRoutes: false,
-  iranAttacks: false,
-  dayNight: false,
 };
 
 // Mobile defaults for tech variant
 export const MOBILE_DEFAULT_MAP_LAYERS: MapLayers = {
-  gpsJamming: false,
   conflicts: false,
   bases: false,
   cables: false,
@@ -302,15 +279,6 @@ export const MOBILE_DEFAULT_MAP_LAYERS: MapLayers = {
   centralBanks: false,
   commodityHubs: false,
   gulfInvestments: false,
-  // Happy variant layers
-  positiveEvents: false,
-  kindness: false,
-  happiness: false,
-  speciesRecovery: false,
-  renewableInstallations: false,
-  tradeRoutes: false,
-  iranAttacks: false,
-  dayNight: false,
 };
 
 export const VARIANT_CONFIG: VariantConfig = {

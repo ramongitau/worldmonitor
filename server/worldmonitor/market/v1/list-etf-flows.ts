@@ -11,7 +11,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { UPSTREAM_TIMEOUT_MS, type YahooChartResponse } from './_shared';
 import { CHROME_UA, yahooGate } from '../../../_shared/constants';
-import { cachedFetchJson } from '../../../_shared/redis';
+import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 
 // ========================================================================
 // Constants and cache
@@ -114,30 +114,28 @@ export async function listEtfFlows(
     return etfCache;
   }
 
+  // Redis shared cache (cross-instance)
+  const redisCached = (await getCachedJson(REDIS_CACHE_KEY)) as ListEtfFlowsResponse | null;
+  if (redisCached?.etfs?.length) {
+    etfCache = redisCached;
+    etfCacheTimestamp = now;
+    return redisCached;
+  }
+
   try {
-  const result = await cachedFetchJson<ListEtfFlowsResponse>(REDIS_CACHE_KEY, REDIS_CACHE_TTL, async () => {
-    const etfs: EtfFlow[] = [];
-    let misses = 0;
+    const charts: PromiseSettledResult<YahooChartResponse | null>[] = [];
     for (const etf of ETF_LIST) {
-      const chart = await fetchEtfChart(etf.ticker);
+      charts.push(await Promise.allSettled([fetchEtfChart(etf.ticker)]).then(r => r[0]!));
+    }
+
+    const etfs: EtfFlow[] = [];
+    for (let i = 0; i < ETF_LIST.length; i++) {
+      const settled = charts[i]!;
+      const chart = settled.status === 'fulfilled' ? settled.value : null;
       if (chart) {
-        const parsed = parseEtfChartData(chart, etf.ticker, etf.issuer);
-        if (parsed) etfs.push(parsed); else misses++;
-      } else {
-        misses++;
+        const parsed = parseEtfChartData(chart, ETF_LIST[i]!.ticker, ETF_LIST[i]!.issuer);
+        if (parsed) etfs.push(parsed);
       }
-      if (misses >= 3 && etfs.length === 0) break;
-    }
-
-    // If Yahoo rate-limited all calls, return null — outer handler serves stale
-    if (etfs.length === 0 && etfCache) {
-      return null;
-    }
-
-    if (etfs.length === 0) {
-      return misses >= 3
-        ? { timestamp: new Date().toISOString(), etfs: [], rateLimited: true }
-        : null;
     }
 
     const totalVolume = etfs.reduce((sum, e) => sum + e.volume, 0);
@@ -147,7 +145,12 @@ export async function listEtfFlows(
 
     etfs.sort((a, b) => b.volume - a.volume);
 
-    return {
+    // Stale-while-revalidate: if Yahoo rate-limited all calls, serve cached data
+    if (etfs.length === 0 && etfCache) {
+      return etfCache;
+    }
+
+    const result: ListEtfFlowsResponse = {
       timestamp: new Date().toISOString(),
       summary: {
         etfCount: etfs.length,
@@ -158,30 +161,17 @@ export async function listEtfFlows(
         outflowCount,
       },
       etfs,
-      rateLimited: false,
     };
-  });
 
-  if (result) {
-    etfCache = result;
-    etfCacheTimestamp = now;
-  }
-
-  return result || etfCache || {
-    timestamp: new Date().toISOString(),
-    summary: {
-      etfCount: 0,
-      totalVolume: 0,
-      totalEstFlow: 0,
-      netDirection: 'UNAVAILABLE',
-      inflowCount: 0,
-      outflowCount: 0,
-    },
-    etfs: [],
-    rateLimited: false,
-  };
+    if (etfs.length > 0) {
+      etfCache = result;
+      etfCacheTimestamp = now;
+      setCachedJson(REDIS_CACHE_KEY, result, REDIS_CACHE_TTL).catch(() => {});
+    }
+    return result;
   } catch {
-    return etfCache || {
+    if (etfCache) return etfCache;
+    return {
       timestamp: new Date().toISOString(),
       summary: {
         etfCount: 0,
@@ -192,7 +182,6 @@ export async function listEtfFlows(
         outflowCount: 0,
       },
       etfs: [],
-      rateLimited: false,
     };
   }
 }

@@ -5,9 +5,6 @@ import { getPizzintStatus } from './get-pizzint-status';
 import { classifyEvent } from './classify-event';
 import { getCountryIntelBrief } from './get-country-intel-brief';
 import { searchGdeltDocuments } from './search-gdelt-documents';
-import { deductSituation } from './deduct-situation';
-import { getCiiHistory } from './cii-history';
-import { getEventArchive } from './get-event-archive';
 
 export const intelligenceHandler: IntelligenceServiceHandler = {
   getRiskScores,
@@ -15,7 +12,4 @@ export const intelligenceHandler: IntelligenceServiceHandler = {
   classifyEvent,
   getCountryIntelBrief,
   searchGdeltDocuments,
-  deductSituation,
-  getCiiHistory,
-  getEventArchive,
 };

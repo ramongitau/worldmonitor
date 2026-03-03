@@ -512,7 +512,7 @@ async function handleSpike(spike: TrendingSpike, config: TrendingConfig): Promis
   try {
     const significant = await isSignificantTerm(spike.term, spike.headlines);
     if (!significant) {
-      console.debug(`[TrendingKeywords] Suppressed non-entity term: "${spike.term}"`);
+      console.log(`[TrendingKeywords] Suppressed non-entity term: "${spike.term}"`);
       return;
     }
 

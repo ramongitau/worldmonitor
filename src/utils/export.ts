@@ -75,7 +75,7 @@ export interface CountryBriefExport {
   level?: string;
   trend?: string;
   components?: { unrest: number; conflict: number; security: number; information: number };
-  signals?: Record<string, number | string | null>;
+  signals?: Record<string, number>;
   brief?: string;
   headlines?: Array<{ title: string; source: string; link: string; pubDate?: string }>;
   generatedAt: string;

@@ -2,14 +2,29 @@
 // source: worldmonitor/wildfire/v1/service.proto
 
 export interface ListFireDetectionsRequest {
+  timeRange?: TimeRange;
+  pagination?: PaginationRequest;
+  boundingBox?: BoundingBox;
+}
+
+export interface TimeRange {
   start: number;
   end: number;
+}
+
+export interface PaginationRequest {
   pageSize: number;
   cursor: string;
-  neLat: number;
-  neLon: number;
-  swLat: number;
-  swLon: number;
+}
+
+export interface BoundingBox {
+  northEast?: GeoCoordinates;
+  southWest?: GeoCoordinates;
+}
+
+export interface GeoCoordinates {
+  latitude: number;
+  longitude: number;
 }
 
 export interface ListFireDetectionsResponse {
@@ -27,11 +42,6 @@ export interface FireDetection {
   detectedAt: number;
   region: string;
   dayNight: string;
-}
-
-export interface GeoCoordinates {
-  latitude: number;
-  longitude: number;
 }
 
 export interface PaginationResponse {
@@ -91,16 +101,7 @@ export class WildfireServiceClient {
 
   async listFireDetections(req: ListFireDetectionsRequest, options?: WildfireServiceCallOptions): Promise<ListFireDetectionsResponse> {
     let path = "/api/wildfire/v1/list-fire-detections";
-    const params = new URLSearchParams();
-    if (req.start != null && req.start !== 0) params.set("start", String(req.start));
-    if (req.end != null && req.end !== 0) params.set("end", String(req.end));
-    if (req.pageSize != null && req.pageSize !== 0) params.set("page_size", String(req.pageSize));
-    if (req.cursor != null && req.cursor !== "") params.set("cursor", String(req.cursor));
-    if (req.neLat != null && req.neLat !== 0) params.set("ne_lat", String(req.neLat));
-    if (req.neLon != null && req.neLon !== 0) params.set("ne_lon", String(req.neLon));
-    if (req.swLat != null && req.swLat !== 0) params.set("sw_lat", String(req.swLat));
-    if (req.swLon != null && req.swLon !== 0) params.set("sw_lon", String(req.swLon));
-    const url = this.baseURL + path + (params.toString() ? "?" + params.toString() : "");
+    const url = this.baseURL + path;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -109,8 +110,9 @@ export class WildfireServiceClient {
     };
 
     const resp = await this.fetchFn(url, {
-      method: "GET",
+      method: "POST",
       headers,
+      body: JSON.stringify(req),
       signal: options?.signal,
     });
 

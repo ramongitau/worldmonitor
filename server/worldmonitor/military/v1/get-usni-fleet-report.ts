@@ -8,7 +8,7 @@ import type {
   USNIFleetReport,
 } from '../../../../src/generated/server/worldmonitor/military/v1/service_server';
 
-import { getCachedJson, setCachedJson, cachedFetchJsonWithMeta } from '../../../_shared/redis';
+import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 import { CHROME_UA } from '../../../_shared/constants';
 
 const USNI_CACHE_KEY = 'usni-fleet:sebuf:v1';
@@ -254,15 +254,12 @@ function parseUSNIArticle(
         }
       }
 
-      // Broadened regex: matches any inline HTML tag (or no tag) wrapping the ship name.
-      // Handles <em>, <i>, <strong>, <b>, <span>, or plain text.
-      const shipRegex = /(USS|USNS)\s+(?:<[^>]+>)?([^<(]+?)(?:<\/[^>]+>)?\s*\(([^)]+)\)/gi;
+      const shipRegex = /USS\s+<(?:em|i)>([^<]+)<\/(?:em|i)>\s*\(([^)]+)\)/gi;
       let match: RegExpExecArray | null;
       const sectionText = stripHtml(section);
       const deploymentStatus = detectDeploymentStatus(sectionText);
       const homePort = extractHomePort(sectionText);
       const activityDesc = sectionText.length > 10 ? sectionText.substring(0, 200).trim() : '';
-      let sectionShipCount = 0;
 
       const upsertVessel = (entry: USNIVessel) => {
         const key = `${entry.region}|${entry.hullNumber.toUpperCase()}`;
@@ -283,21 +280,19 @@ function parseUSNIArticle(
       };
 
       while ((match = shipRegex.exec(section)) !== null) {
-        const prefix = match[1]!.toUpperCase() as 'USS' | 'USNS';
-        const shipName = match[2]!.trim();
-        const hullNumber = match[3]!.trim();
+        const shipName = match[1]!.trim();
+        const hullNumber = match[2]!.trim();
         const vesselType = hullToVesselType(hullNumber);
-        sectionShipCount++;
 
-        if (prefix === 'USS' && vesselType === 'carrier' && currentStrikeGroup) {
+        if (vesselType === 'carrier' && currentStrikeGroup) {
           currentStrikeGroup.carrier = `USS ${shipName} (${hullNumber})`;
         }
         if (currentStrikeGroup) {
-          currentStrikeGroup.escorts.push(`${prefix} ${shipName} (${hullNumber})`);
+          currentStrikeGroup.escorts.push(`USS ${shipName} (${hullNumber})`);
         }
 
         upsertVessel({
-          name: `${prefix} ${shipName}`,
+          name: `USS ${shipName}`,
           hullNumber,
           vesselType,
           region: regionName,
@@ -312,13 +307,24 @@ function parseUSNIArticle(
         });
       }
 
-      // Warn when a strike group section contains text but yields zero ships —
-      // likely means the HTML format changed and the regex no longer matches.
-      if (currentStrikeGroup && sectionShipCount === 0 && sectionText.length > 20) {
-        console.warn(
-          `[USNI Fleet] Strike group section "${currentStrikeGroup.name}" in region "${regionName}" yielded 0 ships — HTML format may have changed`,
-        );
-        warnings.push(`Strike group "${currentStrikeGroup.name}" yielded 0 ships`);
+      const usnsRegex = /USNS\s+<(?:em|i)>([^<]+)<\/(?:em|i)>\s*\(([^)]+)\)/gi;
+      while ((match = usnsRegex.exec(section)) !== null) {
+        const shipName = match[1]!.trim();
+        const hullNumber = match[2]!.trim();
+        upsertVessel({
+          name: `USNS ${shipName}`,
+          hullNumber,
+          vesselType: hullToVesselType(hullNumber),
+          region: regionName,
+          regionLat,
+          regionLon,
+          deploymentStatus,
+          homePort: homePort || '',
+          strikeGroup: currentStrikeGroup?.name || '',
+          activityDescription: activityDesc,
+          articleUrl,
+          articleDate,
+        });
       }
     }
   }
@@ -356,72 +362,65 @@ function parseUSNIArticle(
 // RPC handler
 // ========================================================================
 
-async function fetchUSNIReport(): Promise<USNIFleetReport | null> {
-  console.log('[USNI Fleet] Fetching from WordPress API...');
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-  let wpData: Array<Record<string, unknown>>;
-  try {
-    const response = await fetch(
-      'https://news.usni.org/wp-json/wp/v2/posts?categories=4137&per_page=1',
-      {
-        headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) throw new Error(`USNI API error: ${response.status}`);
-    wpData = (await response.json()) as Array<Record<string, unknown>>;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!wpData || !wpData.length) return null;
-
-  const post = wpData[0]!;
-  const articleUrl = (post.link as string) || `https://news.usni.org/?p=${post.id}`;
-  const articleDate = (post.date as string) || new Date().toISOString();
-  const articleTitle = stripHtml(((post.title as Record<string, string>)?.rendered) || 'USNI Fleet Tracker');
-  const htmlContent = ((post.content as Record<string, string>)?.rendered) || '';
-
-  if (!htmlContent) return null;
-
-  const report = parseUSNIArticle(htmlContent, articleUrl, articleDate, articleTitle);
-  console.log(`[USNI Fleet] Parsed: ${report.vessels.length} vessels, ${report.strikeGroups.length} CSGs, ${report.regions.length} regions`);
-
-  if (report.parsingWarnings.length > 0) {
-    console.warn('[USNI Fleet] Warnings:', report.parsingWarnings.join('; '));
-  }
-
-  // Also write to stale backup cache
-  await setCachedJson(USNI_STALE_CACHE_KEY, report, USNI_STALE_TTL);
-
-  return report;
-}
-
 export async function getUSNIFleetReport(
   _ctx: ServerContext,
   req: GetUSNIFleetReportRequest,
 ): Promise<GetUSNIFleetReportResponse> {
   try {
-    if (req.forceRefresh) {
-      // Bypass cachedFetchJson — fetch fresh and write both caches
-      const report = await fetchUSNIReport();
-      if (!report) return { report: undefined, cached: false, stale: false, error: 'No USNI fleet tracker articles found' };
-      await setCachedJson(USNI_CACHE_KEY, report, USNI_CACHE_TTL);
-      return { report, cached: false, stale: false, error: '' };
+    if (!req.forceRefresh) {
+      const cached = (await getCachedJson(USNI_CACHE_KEY)) as USNIFleetReport | null;
+      if (cached) {
+        console.log('[USNI Fleet] Cache hit');
+        return { report: cached, cached: true, stale: false, error: '' };
+      }
     }
 
-    // Single atomic call — source tracking inside cachedFetchJsonWithMeta eliminates TOCTOU race
-    const { data: report, source } = await cachedFetchJsonWithMeta<USNIFleetReport>(
-      USNI_CACHE_KEY, USNI_CACHE_TTL, fetchUSNIReport,
-    );
-    if (report) {
-      if (source === 'cache') console.log('[USNI Fleet] Cache hit');
-      return { report, cached: source === 'cache', stale: false, error: '' };
+    console.log('[USNI Fleet] Fetching from WordPress API...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    let wpData: Array<Record<string, unknown>>;
+    try {
+      const response = await fetch(
+        'https://news.usni.org/wp-json/wp/v2/posts?categories=4137&per_page=1',
+        {
+          headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) throw new Error(`USNI API error: ${response.status}`);
+      wpData = (await response.json()) as Array<Record<string, unknown>>;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    return { report: undefined, cached: false, stale: false, error: 'No USNI fleet tracker articles found' };
+    if (!wpData || !wpData.length) {
+      return { report: undefined, cached: false, stale: false, error: 'No USNI fleet tracker articles found' };
+    }
+
+    const post = wpData[0]!;
+    const articleUrl = (post.link as string) || `https://news.usni.org/?p=${post.id}`;
+    const articleDate = (post.date as string) || new Date().toISOString();
+    const articleTitle = stripHtml(((post.title as Record<string, string>)?.rendered) || 'USNI Fleet Tracker');
+    const htmlContent = ((post.content as Record<string, string>)?.rendered) || '';
+
+    if (!htmlContent) {
+      return { report: undefined, cached: false, stale: false, error: 'Empty article content' };
+    }
+
+    const report = parseUSNIArticle(htmlContent, articleUrl, articleDate, articleTitle);
+    console.log(`[USNI Fleet] Parsed: ${report.vessels.length} vessels, ${report.strikeGroups.length} CSGs, ${report.regions.length} regions`);
+
+    if (report.parsingWarnings.length > 0) {
+      console.warn('[USNI Fleet] Warnings:', report.parsingWarnings.join('; '));
+    }
+
+    await Promise.all([
+      setCachedJson(USNI_CACHE_KEY, report, USNI_CACHE_TTL),
+      setCachedJson(USNI_STALE_CACHE_KEY, report, USNI_STALE_TTL),
+    ]);
+
+    return { report, cached: false, stale: false, error: '' };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn('[USNI Fleet] Error:', message);

@@ -1,3 +1,5 @@
+declare const process: { env: Record<string, string | undefined> };
+
 import type {
   ServerContext,
   GetVesselSnapshotRequest,
@@ -24,20 +26,6 @@ function getRelayBaseUrl(): string | null {
     .replace(/\/$/, '');
 }
 
-function getRelayRequestHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'User-Agent': CHROME_UA,
-  };
-  const relaySecret = process.env.RELAY_SHARED_SECRET;
-  if (relaySecret) {
-    const relayHeader = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
-    headers[relayHeader] = relaySecret;
-    headers.Authorization = `Bearer ${relaySecret}`;
-  }
-  return headers;
-}
-
 const DISRUPTION_TYPE_MAP: Record<string, AisDisruptionType> = {
   gap_spike: 'AIS_DISRUPTION_TYPE_GAP_SPIKE',
   chokepoint_congestion: 'AIS_DISRUPTION_TYPE_CHOKEPOINT_CONGESTION',
@@ -50,7 +38,7 @@ const SEVERITY_MAP: Record<string, AisDisruptionSeverity> = {
 };
 
 // In-memory cache (matches old /api/ais-snapshot behavior)
-const SNAPSHOT_CACHE_TTL_MS = 300_000; // 5 min -- matches client poll interval
+const SNAPSHOT_CACHE_TTL_MS = 10_000; // 10 seconds -- matches client poll interval
 let cachedSnapshot: VesselSnapshot | undefined;
 let cacheTimestamp = 0;
 let inFlightRequest: Promise<VesselSnapshot | undefined> | null = null;
@@ -88,7 +76,7 @@ async function fetchVesselSnapshotFromRelay(): Promise<VesselSnapshot | undefine
     const response = await fetch(
       `${relayBaseUrl}/ais/snapshot?candidates=false`,
       {
-        headers: getRelayRequestHeaders(),
+        headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
         signal: AbortSignal.timeout(10000),
       },
     );

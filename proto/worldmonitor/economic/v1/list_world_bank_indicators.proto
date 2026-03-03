@@ -3,7 +3,6 @@ syntax = "proto3";
 package worldmonitor.economic.v1;
 
 import "buf/validate/validate.proto";
-import "sebuf/http/annotations.proto";
 import "worldmonitor/core/v1/pagination.proto";
 import "worldmonitor/economic/v1/economic_data.proto";
 
@@ -12,17 +11,14 @@ message ListWorldBankIndicatorsRequest {
   // World Bank indicator code (e.g., "NY.GDP.MKTP.CD").
   string indicator_code = 1 [
     (buf.validate.field).required = true,
-    (buf.validate.field).string.min_len = 1,
-    (sebuf.http.query) = { name: "indicator_code" }
+    (buf.validate.field).string.min_len = 1
   ];
   // Optional country filter (ISO 3166-1 alpha-2).
-  string country_code = 2 [(sebuf.http.query) = { name: "country_code" }];
+  string country_code = 2;
   // Optional year filter. Defaults to latest available.
-  int32 year = 3 [(sebuf.http.query) = { name: "year" }];
-  // Maximum items per page.
-  int32 page_size = 4 [(sebuf.http.query) = { name: "page_size" }];
-  // Cursor for next page.
-  string cursor = 5 [(sebuf.http.query) = { name: "cursor" }];
+  int32 year = 3;
+  // Pagination parameters.
+  worldmonitor.core.v1.PaginationRequest pagination = 4;
 }
 
 // ListWorldBankIndicatorsResponse contains World Bank indicator data.

@@ -16,13 +16,12 @@ import {
 import type { InternetOutage } from '@/types';
 import { createCircuitBreaker } from '@/utils';
 import { isFeatureAvailable } from '../runtime-config';
-import { getHydratedData } from '@/services/bootstrap';
 
 // ---- Client + Circuit Breakers ----
 
 const client = new InfrastructureServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
-const outageBreaker = createCircuitBreaker<ListInternetOutagesResponse>({ name: 'Internet Outages', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
-const statusBreaker = createCircuitBreaker<ListServiceStatusesResponse>({ name: 'Service Statuses', cacheTtlMs: 30 * 60 * 1000, persistCache: true });
+const outageBreaker = createCircuitBreaker<ListInternetOutagesResponse>({ name: 'Internet Outages' });
+const statusBreaker = createCircuitBreaker<ListServiceStatusesResponse>({ name: 'Service Statuses' });
 
 const emptyOutageFallback: ListInternetOutagesResponse = { outages: [], pagination: undefined };
 const emptyStatusFallback: ListServiceStatusesResponse = { statuses: [] };
@@ -81,18 +80,15 @@ export async function fetchInternetOutages(): Promise<InternetOutage[]> {
     return [];
   }
 
-  const hydrated = getHydratedData('outages') as ListInternetOutagesResponse | undefined;
-  const resp = hydrated ?? await outageBreaker.execute(async () => {
+  const resp = await outageBreaker.execute(async () => {
     return client.listInternetOutages({
       country: '',
-      start: 0,
-      end: 0,
-      pageSize: 0,
-      cursor: '',
     });
   }, emptyOutageFallback);
 
   if (resp.outages.length === 0) {
+    // Could be not configured or just no current outages -- keep previous state
+    // unless we've never fetched before
     if (outagesConfigured === null) outagesConfigured = false;
     return [];
   }
@@ -152,23 +148,7 @@ function toServiceResult(proto: ProtoServiceStatus): ServiceStatusResult {
   };
 }
 
-function computeSummary(services: ServiceStatusResult[]): ServiceStatusSummary {
-  return {
-    operational: services.filter((s) => s.status === 'operational').length,
-    degraded: services.filter((s) => s.status === 'degraded').length,
-    outage: services.filter((s) => s.status === 'outage').length,
-    unknown: services.filter((s) => s.status === 'unknown').length,
-  };
-}
-
 export async function fetchServiceStatuses(): Promise<ServiceStatusResponse> {
-  const hydrated = getHydratedData('serviceStatuses');
-  if (hydrated) {
-    const raw = hydrated as { statuses?: ProtoServiceStatus[] };
-    const services = (raw.statuses ?? []).map(toServiceResult);
-    return { success: true, timestamp: new Date().toISOString(), summary: computeSummary(services), services };
-  }
-
   const resp = await statusBreaker.execute(async () => {
     return client.listServiceStatuses({
       status: 'SERVICE_OPERATIONAL_STATUS_UNSPECIFIED',
@@ -177,10 +157,17 @@ export async function fetchServiceStatuses(): Promise<ServiceStatusResponse> {
 
   const services = resp.statuses.map(toServiceResult);
 
+  const summary: ServiceStatusSummary = {
+    operational: services.filter((s) => s.status === 'operational').length,
+    degraded: services.filter((s) => s.status === 'degraded').length,
+    outage: services.filter((s) => s.status === 'outage').length,
+    unknown: services.filter((s) => s.status === 'unknown').length,
+  };
+
   return {
     success: true,
     timestamp: new Date().toISOString(),
-    summary: computeSummary(services),
+    summary,
     services,
   };
 }

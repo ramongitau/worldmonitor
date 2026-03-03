@@ -19,10 +19,9 @@ import { createCircuitBreaker } from '@/utils';
 
 const client = new MarketServiceClient('', { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
 const stockBreaker = createCircuitBreaker<ListMarketQuotesResponse>({ name: 'Market Quotes', cacheTtlMs: 0 });
-const commodityBreaker = createCircuitBreaker<ListMarketQuotesResponse>({ name: 'Commodity Quotes', cacheTtlMs: 0 });
 const cryptoBreaker = createCircuitBreaker<ListCryptoQuotesResponse>({ name: 'Crypto Quotes' });
 
-const emptyStockFallback: ListMarketQuotesResponse = { quotes: [], finnhubSkipped: false, skipReason: '', rateLimited: false };
+const emptyStockFallback: ListMarketQuotesResponse = { quotes: [], finnhubSkipped: false, skipReason: '' };
 const emptyCryptoFallback: ListCryptoQuotesResponse = { quotes: [] };
 
 // ---- Proto -> legacy adapters ----
@@ -56,7 +55,6 @@ export interface MarketFetchResult {
   data: MarketData[];
   skipped?: boolean;
   reason?: string;
-  rateLimited?: boolean;
 }
 
 // ========================================================================
@@ -71,14 +69,14 @@ function symbolSetKey(symbols: string[]): string {
 
 export async function fetchMultipleStocks(
   symbols: Array<{ symbol: string; name: string; display: string }>,
-  options: { onBatch?: (results: MarketData[]) => void; useCommodityBreaker?: boolean } = {},
+  options: { onBatch?: (results: MarketData[]) => void } = {},
 ): Promise<MarketFetchResult> {
+  // All symbols go through listMarketQuotes (handler handles Yahoo vs Finnhub routing internally)
   const allSymbolStrings = symbols.map((s) => s.symbol);
   const setKey = symbolSetKey(allSymbolStrings);
   const symbolMetaMap = new Map(symbols.map((s) => [s.symbol, s]));
 
-  const breaker = options.useCommodityBreaker ? commodityBreaker : stockBreaker;
-  const resp = await breaker.execute(async () => {
+  const resp = await stockBreaker.execute(async () => {
     return client.listMarketQuotes({ symbols: allSymbolStrings });
   }, emptyStockFallback);
 
@@ -101,7 +99,6 @@ export async function fetchMultipleStocks(
     data,
     skipped: resp.finnhubSkipped || undefined,
     reason: resp.skipReason || undefined,
-    rateLimited: resp.rateLimited || undefined,
   };
 }
 

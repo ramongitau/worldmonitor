@@ -130,7 +130,6 @@ function mergeSemanticallySimilarClusters(
       isAlert: allItems.some(i => i.isAlert),
       monitorColor: primary.monitorColor,
       velocity: primary.velocity,
-      threat: primary.threat,
     };
     merged.push(mergedCluster);
   }

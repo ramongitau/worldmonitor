@@ -11,9 +11,9 @@ export type { ArxivPaper, GithubRepo, HackernewsItem };
 
 const client = new ResearchServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
 
-const arxivBreaker = createCircuitBreaker<ArxivPaper[]>({ name: 'ArXiv Papers', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-const trendingBreaker = createCircuitBreaker<GithubRepo[]>({ name: 'GitHub Trending', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
-const hnBreaker = createCircuitBreaker<HackernewsItem[]>({ name: 'Hacker News', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
+const arxivBreaker = createCircuitBreaker<ArxivPaper[]>({ name: 'ArXiv Papers' });
+const trendingBreaker = createCircuitBreaker<GithubRepo[]>({ name: 'GitHub Trending' });
+const hnBreaker = createCircuitBreaker<HackernewsItem[]>({ name: 'Hacker News' });
 
 export async function fetchArxivPapers(
   category = 'cs.AI',
@@ -24,8 +24,7 @@ export async function fetchArxivPapers(
     const resp = await client.listArxivPapers({
       category,
       query,
-      pageSize,
-      cursor: '',
+      pagination: { pageSize, cursor: '' },
     });
     return resp.papers;
   }, []);
@@ -40,8 +39,7 @@ export async function fetchTrendingRepos(
     const resp = await client.listTrendingRepos({
       language,
       period,
-      pageSize,
-      cursor: '',
+      pagination: { pageSize, cursor: '' },
     });
     return resp.repos;
   }, []);
@@ -54,8 +52,7 @@ export async function fetchHackernewsItems(
   return hnBreaker.execute(async () => {
     const resp = await client.listHackernewsItems({
       feedType,
-      pageSize,
-      cursor: '',
+      pagination: { pageSize, cursor: '' },
     });
     return resp.items;
   }, []);

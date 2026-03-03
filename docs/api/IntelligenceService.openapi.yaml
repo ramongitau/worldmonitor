@@ -4,19 +4,18 @@ info:
     version: 1.0.0
 paths:
     /api/intelligence/v1/get-risk-scores:
-        get:
+        post:
             tags:
                 - IntelligenceService
             summary: GetRiskScores
             description: GetRiskScores retrieves composite instability and strategic risk assessments.
             operationId: GetRiskScores
-            parameters:
-                - name: region
-                  in: query
-                  description: Optional region filter. Empty returns all tracked regions.
-                  required: false
-                  schema:
-                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/GetRiskScoresRequest'
+                required: true
             responses:
                 "200":
                     description: Successful response
@@ -37,19 +36,18 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/Error'
     /api/intelligence/v1/get-pizzint-status:
-        get:
+        post:
             tags:
                 - IntelligenceService
             summary: GetPizzintStatus
             description: GetPizzintStatus retrieves Pentagon Pizza Index and GDELT tension pair data.
             operationId: GetPizzintStatus
-            parameters:
-                - name: include_gdelt
-                  in: query
-                  description: Whether to include GDELT tension pairs in the response.
-                  required: false
-                  schema:
-                    type: boolean
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/GetPizzintStatusRequest'
+                required: true
             responses:
                 "200":
                     description: Successful response
@@ -70,37 +68,18 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/Error'
     /api/intelligence/v1/classify-event:
-        get:
+        post:
             tags:
                 - IntelligenceService
             summary: ClassifyEvent
             description: ClassifyEvent classifies a real-world event using AI (Groq).
             operationId: ClassifyEvent
-            parameters:
-                - name: title
-                  in: query
-                  description: Event title or headline.
-                  required: false
-                  schema:
-                    type: string
-                - name: description
-                  in: query
-                  description: Event description or body text.
-                  required: false
-                  schema:
-                    type: string
-                - name: source
-                  in: query
-                  description: Event source (e.g., "reuters", "acled").
-                  required: false
-                  schema:
-                    type: string
-                - name: country
-                  in: query
-                  description: Country context (ISO 3166-1 alpha-2).
-                  required: false
-                  schema:
-                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ClassifyEventRequest'
+                required: true
             responses:
                 "200":
                     description: Successful response
@@ -121,19 +100,18 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/Error'
     /api/intelligence/v1/get-country-intel-brief:
-        get:
+        post:
             tags:
                 - IntelligenceService
             summary: GetCountryIntelBrief
             description: GetCountryIntelBrief generates an AI intelligence brief for a country (OpenRouter).
             operationId: GetCountryIntelBrief
-            parameters:
-                - name: country_code
-                  in: query
-                  description: ISO 3166-1 alpha-2 country code.
-                  required: false
-                  schema:
-                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/GetCountryIntelBriefRequest'
+                required: true
             responses:
                 "200":
                     description: Successful response
@@ -154,77 +132,17 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/Error'
     /api/intelligence/v1/search-gdelt-documents:
-        get:
+        post:
             tags:
                 - IntelligenceService
             summary: SearchGdeltDocuments
             description: SearchGdeltDocuments searches the GDELT 2.0 Doc API for news articles.
             operationId: SearchGdeltDocuments
-            parameters:
-                - name: query
-                  in: query
-                  description: Search query string.
-                  required: false
-                  schema:
-                    type: string
-                - name: max_records
-                  in: query
-                  description: Maximum number of articles to return (1-250).
-                  required: false
-                  schema:
-                    type: integer
-                    format: int32
-                - name: timespan
-                  in: query
-                  description: Time span filter (e.g., "15min", "1h", "24h").
-                  required: false
-                  schema:
-                    type: string
-                - name: tone_filter
-                  in: query
-                  description: |-
-                    Tone filter appended to query (e.g., "tone>5" for positive, "tone<-5" for negative).
-                     Left empty to skip tone filtering.
-                  required: false
-                  schema:
-                    type: string
-                - name: sort
-                  in: query
-                  description: 'Sort mode: "DateDesc" (default), "ToneDesc", "ToneAsc", "HybridRel".'
-                  required: false
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: Successful response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/SearchGdeltDocumentsResponse'
-                "400":
-                    description: Validation error
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ValidationError'
-                default:
-                    description: Error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Error'
-    /api/intelligence/v1/deduct-situation:
-        post:
-            tags:
-                - IntelligenceService
-            summary: DeductSituation
-            description: DeductSituation performs AI-powered situational analysis and deduction.
-            operationId: DeductSituation
             requestBody:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/DeductSituationRequest'
+                            $ref: '#/components/schemas/SearchGdeltDocumentsRequest'
                 required: true
             responses:
                 "200":
@@ -232,7 +150,7 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/DeductSituationResponse'
+                                $ref: '#/components/schemas/SearchGdeltDocumentsResponse'
                 "400":
                     description: Validation error
                     content:
@@ -660,14 +578,6 @@ components:
                 timespan:
                     type: string
                     description: Time span filter (e.g., "15min", "1h", "24h").
-                toneFilter:
-                    type: string
-                    description: |-
-                        Tone filter appended to query (e.g., "tone>5" for positive, "tone<-5" for negative).
-                         Left empty to skip tone filtering.
-                sort:
-                    type: string
-                    description: 'Sort mode: "DateDesc" (default), "ToneDesc", "ToneAsc", "HybridRel".'
             required:
                 - query
             description: SearchGdeltDocumentsRequest specifies filters for searching GDELT news articles.
@@ -711,19 +621,3 @@ components:
                     format: double
                     description: GDELT tone score (negative = negative tone, positive = positive tone).
             description: GdeltArticle represents a single article from the GDELT document API.
-        DeductSituationRequest:
-            type: object
-            properties:
-                query:
-                    type: string
-                geoContext:
-                    type: string
-        DeductSituationResponse:
-            type: object
-            properties:
-                analysis:
-                    type: string
-                model:
-                    type: string
-                provider:
-                    type: string

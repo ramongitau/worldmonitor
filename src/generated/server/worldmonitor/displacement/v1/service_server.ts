@@ -137,18 +137,12 @@ export function createDisplacementServiceRoutes(
 ): RouteDescriptor[] {
   return [
     {
-      method: "GET",
+      method: "POST",
       path: "/api/displacement/v1/get-displacement-summary",
       handler: async (req: Request): Promise<Response> => {
         try {
           const pathParams: Record<string, string> = {};
-          const url = new URL(req.url, "http://localhost");
-          const params = url.searchParams;
-          const body: GetDisplacementSummaryRequest = {
-            year: Number(params.get("year") ?? "0"),
-            countryLimit: Number(params.get("country_limit") ?? "0"),
-            flowLimit: Number(params.get("flow_limit") ?? "0"),
-          };
+          const body = await req.json() as GetDisplacementSummaryRequest;
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("getDisplacementSummary", body);
             if (bodyViolations) {
@@ -186,19 +180,12 @@ export function createDisplacementServiceRoutes(
       },
     },
     {
-      method: "GET",
+      method: "POST",
       path: "/api/displacement/v1/get-population-exposure",
       handler: async (req: Request): Promise<Response> => {
         try {
           const pathParams: Record<string, string> = {};
-          const url = new URL(req.url, "http://localhost");
-          const params = url.searchParams;
-          const body: GetPopulationExposureRequest = {
-            mode: params.get("mode") ?? "",
-            lat: Number(params.get("lat") ?? "0"),
-            lon: Number(params.get("lon") ?? "0"),
-            radius: Number(params.get("radius") ?? "0"),
-          };
+          const body = await req.json() as GetPopulationExposureRequest;
           if (options?.validateRequest) {
             const bodyViolations = options.validateRequest("getPopulationExposure", body);
             if (bodyViolations) {
