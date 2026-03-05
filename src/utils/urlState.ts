@@ -32,6 +32,21 @@ const LAYER_KEYS: (keyof MapLayers)[] = [
   'accelerators',
   'techHQs',
   'techEvents',
+  'stockExchanges',
+  'financialCenters',
+  'centralBanks',
+  'commodityHubs',
+  'gulfInvestments',
+  'positiveEvents',
+  'kindness',
+  'happiness',
+  'speciesRecovery',
+  'renewableInstallations',
+  'tradeRoutes',
+  'iranAttacks',
+  'gpsJamming',
+  'geopoliticalBoundaries',
+  'dayNight',
 ];
 
 const TIME_RANGES: TimeRange[] = ['1h', '6h', '24h', '48h', '7d', 'all'];
