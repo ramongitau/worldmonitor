@@ -4,7 +4,7 @@ import type {
   SummarizeArticleResponse,
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 
-import { cachedFetchJsonWithMeta } from '../../../_shared/redis';
+import { getCachedJson, setCachedJson } from '../../../_shared/redis';
 import {
   CACHE_TTL_SECONDS,
   deduplicateHeadlines,
@@ -88,78 +88,82 @@ export async function summarizeArticle(
   try {
     const cacheKey = getCacheKey(headlines, mode, sanitizedGeoContext, variant, lang);
 
-    // Single atomic call — source tracking happens inside cachedFetchJsonWithMeta,
-    // eliminating the TOCTOU race between a separate getCachedJson and cachedFetchJson.
-    const { data: result, source } = await cachedFetchJsonWithMeta<{ summary: string; model: string; tokens: number }>(
-      cacheKey,
-      CACHE_TTL_SECONDS,
-      async () => {
-        const uniqueHeadlines = deduplicateHeadlines(headlines.slice(0, 5));
-        const { systemPrompt, userPrompt } = buildArticlePrompts(headlines, uniqueHeadlines, {
-          mode,
-          geoContext: sanitizedGeoContext,
-          variant,
-          lang,
-        });
+    // Manual cache check and set logic since cachedFetchJsonWithMeta is not in redis.ts
+    const cached = await getCachedJson(cacheKey);
+    let result: { summary: string; model: string; tokens: number } | null = null;
+    let source = 'cache';
 
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.3,
-            max_tokens: 100,
-            top_p: 0.9,
-            ...extraBody,
-          }),
-          signal: AbortSignal.timeout(25_000),
-        });
+    if (cached) {
+      result = cached as any;
+    } else {
+      source = 'api';
+      const uniqueHeadlines = deduplicateHeadlines(headlines.slice(0, 5));
+      const { systemPrompt, userPrompt } = buildArticlePrompts(headlines, uniqueHeadlines, {
+        mode,
+        geoContext: sanitizedGeoContext,
+        variant,
+        lang,
+      });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[SummarizeArticle:${provider}] API error:`, response.status, errorText);
-          throw new Error(response.status === 429 ? 'Rate limited' : `${provider} API error`);
-        }
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { ...providerHeaders, 'User-Agent': CHROME_UA },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 100,
+          top_p: 0.9,
+          ...extraBody,
+        }),
+        signal: AbortSignal.timeout(25_000),
+      });
 
-        const data = await response.json() as any;
-        const tokens = (data.usage?.total_tokens as number) || 0;
-        const message = data.choices?.[0]?.message;
-        let rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[SummarizeArticle:${provider}] API error:`, response.status, errorText);
+        throw new Error(response.status === 429 ? 'Rate limited' : `${provider} API error`);
+      }
 
-        rawContent = rawContent
-          .replace(/<think>[\s\S]*?<\/think>/gi, '')
-          .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
-          .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
-          .replace(/<reflection>[\s\S]*?<\/reflection>/gi, '')
-          .replace(/<\|begin_of_thought\|>[\s\S]*?<\|end_of_thought\|>/gi, '')
-          .trim();
+      const data = await response.json() as any;
+      const tokens = (data.usage?.total_tokens as number) || 0;
+      const message = data.choices?.[0]?.message;
+      let rawContent = typeof message?.content === 'string' ? message.content.trim() : '';
 
-        // Strip unterminated thinking blocks (no closing tag)
-        rawContent = rawContent
-          .replace(/<think>[\s\S]*/gi, '')
-          .replace(/<\|thinking\|>[\s\S]*/gi, '')
-          .replace(/<reasoning>[\s\S]*/gi, '')
-          .replace(/<reflection>[\s\S]*/gi, '')
-          .replace(/<\|begin_of_thought\|>[\s\S]*/gi, '')
-          .trim();
+      rawContent = rawContent
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
+        .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+        .replace(/<reflection>[\s\S]*?<\/reflection>/gi, '')
+        .replace(/<\|begin_of_thought\|>[\s\S]*?<\|end_of_thought\|>/gi, '')
+        .trim();
 
-        if (['brief', 'analysis'].includes(mode) && rawContent.length < 20) {
-          console.warn(`[SummarizeArticle:${provider}] Output too short after stripping (${rawContent.length} chars), rejecting`);
-          return null;
-        }
+      // Strip unterminated thinking blocks (no closing tag)
+      rawContent = rawContent
+        .replace(/<think>[\s\S]*/gi, '')
+        .replace(/<\|thinking\|>[\s\S]*/gi, '')
+        .replace(/<reasoning>[\s\S]*/gi, '')
+        .replace(/<reflection>[\s\S]*/gi, '')
+        .replace(/<\|begin_of_thought\|>[\s\S]*/gi, '')
+        .trim();
 
-        if (['brief', 'analysis'].includes(mode) && hasReasoningPreamble(rawContent)) {
-          console.warn(`[SummarizeArticle:${provider}] Reasoning preamble detected, rejecting`);
-          return null;
-        }
+      if (['brief', 'analysis'].includes(mode) && rawContent.length < 20) {
+        console.warn(`[SummarizeArticle:${provider}] Output too short after stripping (${rawContent.length} chars), rejecting`);
+        result = null;
+      } else if (['brief', 'analysis'].includes(mode) && hasReasoningPreamble(rawContent)) {
+        console.warn(`[SummarizeArticle:${provider}] Reasoning preamble detected, rejecting`);
+        result = null;
+      } else {
+        result = rawContent ? { summary: rawContent, model, tokens } : null;
+      }
 
-        return rawContent ? { summary: rawContent, model, tokens } : null;
-      },
-    );
+      if (result) {
+        await setCachedJson(cacheKey, result, CACHE_TTL_SECONDS);
+      }
+    }
 
     if (result?.summary) {
       const isCached = source === 'cache';
